@@ -5,13 +5,14 @@ import { useAuth0 } from "@auth0/auth0-react";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-
+import { AnswerGrid } from "../../components/AnswerGrid";
 export default function ViewExamDetails() {
   const { user, getAccessTokenSilently } = useAuth0();
   const [examDetails, setExamDetails] = useState({
     exam_title: "Sample Exam",
     course_name: "Sample Course",
     grade: 89,
+    chosen_answers: {},
   });
   const [canViewExam, setCanViewExam] = useState(false);
   const [canViewAnswers, setCanViewAnswers] = useState(false);
@@ -192,22 +193,11 @@ export default function ViewExamDetails() {
         {canViewAnswers ? (
               <div className="mt-4">
                 <h3 className="text-lg font-bold mb-2">Solutions</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Question</TableHead>
-                      <TableHead>Answer</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {answers.map((answer, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{index+1}</TableCell>
-                        <TableCell>{answer}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                <AnswerGrid 
+                  totalQuestions={answers.length}
+                  correctAnswers={answers}
+                  studentAnswers={examDetails.chosen_answers}
+                />
               </div>
             ) : <p>Instructor has chosen not to show the correct answers for this exam</p>}
           </CardContent>

@@ -8,11 +8,17 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
       correct: {},
       student: {}
     };
-
+    
     if (Array.isArray(correctAnswers)) {
-      correctAnswers.forEach(answer => {
-        const [questionNum, value] = answer.split(':');
-        formatted.correct[`q${questionNum}`] = value;
+      correctAnswers.forEach((answer, index) => {
+        if (answer.includes(':')) {
+          // Format: ['1:E', '2:E']
+          const [questionNum, value] = answer.split(':');
+          formatted.correct[`q${questionNum}`] = value;
+        } else {
+          // Format: ['E', 'E', 'E']
+          formatted.correct[`q${index + 1}`] = answer;
+        }
       });
     }
 
@@ -47,7 +53,6 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
         optionSpan.innerText = option;
 
         const isCorrect = answers.correct[qKey] === option;
-        console.log("currentChoice", { i, answers, option });
         const isStudentAnswer = answers.student[qKey] === option;
 
         if (isCorrect && isStudentAnswer) {
