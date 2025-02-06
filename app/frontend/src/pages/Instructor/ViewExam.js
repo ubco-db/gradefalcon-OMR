@@ -32,11 +32,13 @@ const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) => {
       student: {}
     };
     
-    // Format correct answers from {2:E,3:E} to {q2:E,q3:E}
-    Object.entries(correctAnswers || {}).forEach(([key, value]) => {
-      formatted.correct[`q${key}`] = value;
-    });
-
+    if (Array.isArray(correctAnswers)) {
+      correctAnswers.forEach(answer => {
+        const [questionNum, value] = answer.split(':');
+        formatted.correct[`q${questionNum}`] = value;
+      });
+    }
+    
     // Format student answers from [{q1:A},{q2:B}] to {q1:A,q2:B}
     studentAnswers?.forEach(answer => {
       const [[key, value]] = Object.entries(answer);
@@ -68,6 +70,7 @@ const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) => {
         optionSpan.innerText = option;
 
         const isCorrect = answers.correct[qKey] === option;
+        console.log("currentChoice", {i, answers, option});
         const isStudentAnswer = answers.student[qKey] === option;
 
         if (isCorrect && isStudentAnswer) {
