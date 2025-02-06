@@ -78,7 +78,7 @@ const displayClassManagement = async (req, res, next) => {
     const classData = result.rows;
 
     const examResults = classData.map((student) =>
-      pool.query("SELECT exam_id, grade FROM studentResults WHERE student_id = $1", [student.student_id]).then((result) => ({
+      pool.query("SELECT e.exam_id, grade FROM exam e JOIN enrollment USING (class_id) JOIN studentresults USING (student_id, exam_id) WHERE student_id = $1 AND class_id = $2", [student.student_id, class_id]).then((result) => ({
         student_id: student.student_id,
         name: student.name,
         exams: result.rows, // This will be an array of exam results
