@@ -617,9 +617,10 @@ const getExamDetails = async (req, res, next) => {
     const examQuery = `
       SELECT e.exam_id, e.exam_title, e.total_questions, e.total_marks, e.mean, e.high, e.low, 
       e.upper_quartile, e.lower_quartile, e.page_count, e.viewing_options, graded,
-      c.course_id, c.course_name, e.class_id
+      c.course_id, c.course_name, e.class_id, s.answers
       FROM exam e
       JOIN classes c ON e.class_id = c.class_id
+      JOIN solution s ON e.exam_id = s.exam_id 
       WHERE e.exam_id = $1
     `;
     const examResult = await pool.query(examQuery, [exam_id]);
@@ -722,7 +723,7 @@ const getStudentAttempt = async (req, res, next) => {
   try {
     const exam = await pool.query(
       `
-      SELECT exam_id, student_id, grade, exam_title, total_marks, course_id, course_name, viewing_options 
+      SELECT exam_id, student_id, grade, chosen_answers, exam_title, total_marks, course_id, course_name, viewing_options 
       from studentResults 
       join student using (student_id) 
 	    join exam using (exam_id)
@@ -738,6 +739,7 @@ const getStudentAttempt = async (req, res, next) => {
   }
 };
 
+//?
 const fetchStudentExam = async (req, res, next) => {
   const auth0_id = req.auth.sub; // Get the student ID from Auth0 token
   const exam_id = parseInt(req.params.exam_id, 10);

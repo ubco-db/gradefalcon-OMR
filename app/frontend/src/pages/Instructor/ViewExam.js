@@ -40,6 +40,9 @@ const ViewExam = () => {
     grade,
     total_marks,
     reviewExams,
+    answers,
+    total_questions,
+    chosen_answers
   } = location.state || {};
   const [frontSrc, setFrontSrc] = useState("");
   const [backSrc, setBackSrc] = useState("");
