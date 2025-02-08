@@ -10,7 +10,6 @@ import { Label } from "../../components/ui/label";
 import { useToast } from "../../components/ui/use-toast";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
-import { ScrollArea } from "../../components/ui/scroll-area";
 import GradeRadialChart from "../../components/GradeRadialChart";
 import {
   AlertDialog,
@@ -24,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "../../components/ui/alert-dialog";
 import { Badge } from "../../components/ui/badge";
+import { AnswerGrid } from "../../components/AnswerGrid";
 
 const ViewExam = () => {
   const { isAuthenticated, getAccessTokenSilently } = useAuth0();
@@ -40,6 +40,9 @@ const ViewExam = () => {
     grade,
     total_marks,
     reviewExams,
+    answers,
+    total_questions,
+    chosen_answers
   } = location.state || {};
   const [frontSrc, setFrontSrc] = useState("");
   const [backSrc, setBackSrc] = useState("");
@@ -51,8 +54,16 @@ const ViewExam = () => {
   const [gradeChangelog, setGradeChangelog] = useState([]);
 
   console.log("displayGrade", displayGrade);
+  console.log("Debug Data:", {
+    total_questions,
+    grade,
+    student_name,
+    answers,
+    chosen_answers
+  });
 
   useEffect(() => {
+    
     const fetchExam = async () => {
       const token = await getAccessTokenSilently();
       if (!student_id) {
@@ -250,7 +261,6 @@ const ViewExam = () => {
               </div>
             </CardContent>
           </Card>
-
         {/* Grade Changelog and Edit Grade stacked */}
           <Card className="bg-white border rounded-lg p-6">
             <CardHeader className="flex justify-between px-6 py-4">
@@ -283,6 +293,11 @@ const ViewExam = () => {
               )}
             </CardContent>
           </Card>
+          <AnswerGrid 
+              totalQuestions={total_questions}
+              correctAnswers={answers}
+              studentAnswers={chosen_answers}
+            />
         </div>
       </div>
     </div>

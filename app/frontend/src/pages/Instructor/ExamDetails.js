@@ -387,6 +387,9 @@ const data = [
                                     student_name: result.student_name,
                                     grade: result.grade,
                                     total_marks: examData.total_marks,
+                                    chosen_answers: result.chosen_answers,
+                                    answers: examData.answers,
+                                    total_questions: examData.total_questions,
                                   },
                                 });
                               }}
