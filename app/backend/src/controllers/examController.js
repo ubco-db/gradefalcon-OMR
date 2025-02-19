@@ -382,6 +382,12 @@ async function getCustomMarkingSchemes(exam_id) {
 
 //helper function to generate the latex document
 async function generateLatexDocument(questions, options, courseId, examTitle) {
+  const metadata = {
+    courseId: courseId,
+    examTitle: examTitle,
+    questions: questions,
+    options: options,
+  };
   const questionTemplate = `
     \\noindent
     \\begin{minipage}[t]{\\linewidth}
@@ -401,6 +407,7 @@ async function generateLatexDocument(questions, options, courseId, examTitle) {
     \\documentclass{article}
     \\usepackage[utf8]{inputenc}
     \\usepackage{helvet}
+    \\usepackage{qrcode}
     \\renewcommand{\\familydefault}{\\sfdefault}
     \\usepackage{tikz}
     \\usepackage[margin=1in]{geometry}
@@ -433,6 +440,8 @@ async function generateLatexDocument(questions, options, courseId, examTitle) {
     \\vspace{1mm}\\hspace{46mm}\\rule{0.6cm}{0.2pt}\\hspace{0.4cm} & \\cir{\\tiny0} & \\cir{\\tiny1} & \\cir{\\tiny2} & \\cir{\\tiny3} & \\cir{\\tiny4} & \\cir{\\tiny5} & \\cir{\\tiny6} & \\cir{\\tiny7} & \\cir{\\tiny8} & \\cir{\\tiny9} \\\\  
     `).join('')}
     \\end{tabular}
+    \\hspace{5mm}
+    \\qrcode[height=2cm,level=Q]{${JSON.stringify(metadata)}}
     \\vspace{1cm}
     \\begin{center}
     \\begin{multicols}{4}
