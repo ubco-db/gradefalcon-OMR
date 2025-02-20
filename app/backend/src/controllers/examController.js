@@ -221,7 +221,30 @@ const getExamQuestionDetails = async (req, res) => {
   }
 };
 
+// get Template File by exam id
+const getExamTemplateFile = async (req, res) => {
+  const { examTitle, classID } = req.params;
 
+  try {
+    const result = await pool.query(
+      "SELECT templateFile FROM exam WHERE exam_title = $1 AND class_id = $2",
+      [examTitle, classID]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: "No templateFile found for this exam" });
+    }
+
+    const { templateFiles } = result.rows[0];
+    // return the json object
+    return res.status(200).json({
+      templateFiles
+    });
+  } catch (error) {
+    console.error("Error getting exam template file:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
+  }
+};
 
 
 const getScoreByExamId = async (exam_id) => {
@@ -381,12 +404,13 @@ async function getCustomMarkingSchemes(exam_id) {
 }
 
 //helper function to generate the latex document
-async function generateLatexDocument(questions, options, courseId, examTitle) {
+async function generateLatexDocument(questions, options, courseId, examTitle, classId) {
   const metadata = {
     courseId: courseId,
+    classId: classId,
     examTitle: examTitle,
     questions: questions,
-    options: options,
+    options: options
   };
   const questionTemplate = `
     \\noindent
@@ -441,7 +465,7 @@ async function generateLatexDocument(questions, options, courseId, examTitle) {
     `).join('')}
     \\end{tabular}
     \\hspace{5mm}
-    \\qrcode[height=2cm,level=Q]{${JSON.stringify(metadata)}}
+    \\qrcode[height=2cm,level=H]{${JSON.stringify(metadata).replace(/[&%$#_{}]/g, '\\$&')}}
     \\vspace{1cm}
     \\begin{center}
     \\begin{multicols}{4}
@@ -577,7 +601,7 @@ async function generateCustomBubbleSheet(req, res) {
   }
 
   // Generate LaTeX document and save to file
-  const latexDocument = await generateLatexDocument(numQuestions, numOptions, courseId, examTitle);
+  const latexDocument = await generateLatexDocument(numQuestions, numOptions, courseId, examTitle, classId);
   const latexFilePath = path.join(outputDir, `${courseId}_${examTitle}_${classId}.tex`);
   const pdfFilePath = path.join(outputDir, `${courseId}_${examTitle}_${classId}.pdf`);
 
@@ -748,7 +772,7 @@ const getStudentAttempt = async (req, res, next) => {
   }
 };
 
-//?
+//
 const fetchStudentExam = async (req, res, next) => {
   const auth0_id = req.auth.sub; // Get the student ID from Auth0 token
   const exam_id = parseInt(req.params.exam_id, 10);
@@ -860,6 +884,7 @@ module.exports = {
   getScoreByExamId,
   saveResults,
   getExamQuestionDetails,
+  getExamTemplateFile,
   deleteAllFilesInDir,
   resetOMR,
   ensureDirectoryExistence,
