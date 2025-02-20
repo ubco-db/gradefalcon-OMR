@@ -440,8 +440,8 @@ async function generateLatexDocument(questions, options, courseId, examTitle, cl
     \\usepackage{graphicx}
     \\usepackage{geometry}
     \\geometry{
-      a4paper,
-      total={170mm,257mm},
+      letterpaper,
+      total={6.7in,10.1in},
       left=20mm,
       top=5mm,
     }
