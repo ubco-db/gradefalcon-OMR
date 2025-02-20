@@ -442,7 +442,6 @@ async function generateLatexDocument(questions, options, courseId, examTitle, cl
     \\geometry{
       letterpaper,
       total={6.7in,10.1in},
-      left=20mm,
       top=5mm,
     }
     \\newcommand*\\cir[1]{\\tikz[baseline=(char.base)]{
