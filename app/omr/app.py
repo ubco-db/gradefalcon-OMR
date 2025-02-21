@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify
 import subprocess
 import os
 import shutil
-
+from pdf_to_images import pdf_to_images
 
 app = Flask(__name__)
 
@@ -24,18 +24,9 @@ def process_omr():
         app.logger.info(f"Root: {root}, Dirs: {dirs}, Files: {files}")
 
     try:
-          # Run the PDF conversion script
-        subprocess.run(
-            ["python3", "pdf_to_images.py"], #change to ["python3", "./scripts/pdf_to_images.py"]
-            capture_output=True,
-            text=True,
-            check=True
-        )
-
           # Log contents of input directory before processing
         app.logger.info(f"Contents of input directory before processing: {os.listdir(input_dir)}")
         
-
         # Run the OMR processing script
         result = subprocess.run(
             ["python3", "main.py", "--inputDir", input_dir, "--outputDir", out_dir],
@@ -68,6 +59,31 @@ def process_omr():
     except Exception as e:
         app.logger.error(f"OMR Script Exception: {e}")
         return jsonify({"error": str(e)}), 500
+
+@app.route('/split_pdf', methods=['POST'])
+def split_pdf():
+    try:
+        input_dir = "./inputs"
+        output_dir = "./inputs"
+        data = request.get_json()
+        double_side = data.get('doubleSide', False)
+
+        results = pdf_to_images(input_dir, output_dir, double_pages=double_side)
+        
+        if "error" in results:
+            return jsonify({"error": "PDF processing failed", "details": results["error"]}), 500
+            
+        response_data = {
+            "message": "PDF processed successfully",
+            "double_side": double_side
+        }
+        
+        return jsonify(response_data), 200
+        
+    except Exception as e:
+        app.logger.error(f"PDF Processing Error: {e}")
+        return jsonify({"error": str(e)}), 500
+    
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

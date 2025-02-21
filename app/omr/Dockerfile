@@ -10,14 +10,14 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 # Update the package repository and install required dependencies
 # Added poppler-utils for pdf2image
 RUN apt-get update -y && \
-    apt-get install -y build-essential cmake unzip pkg-config \
+    apt-get install -y build-essential cmake unzip pkg-config libzbar0\
     libjpeg-dev libpng-dev libtiff-dev \
     libavcodec-dev libavformat-dev libswscale-dev libv4l-dev \
     libatlas-base-dev gfortran && \
     apt-get install -y poppler-utils && \ 
     apt-get clean && \
     apt-get -y autoremove
-
+    
 # Install Python dependencies
 RUN pip3 install --user opencv-python-headless opencv-contrib-python-headless    
 

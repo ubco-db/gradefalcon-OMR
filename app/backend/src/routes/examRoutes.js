@@ -34,6 +34,7 @@ const { Parser } = require("json2csv");
 const { PDFDocument } = require("pdf-lib");
 const multer = require("multer");
 const { formatWithOptions } = require("util");
+const e = require("express");
 const router = express.Router();
 const combinedUpload = multer().fields([
   { name: 'examKey', maxCount: 1 },
@@ -166,51 +167,44 @@ router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["
     }
 
     const { path: tempFilePath } = req.file;
-
-    const destinationDir1 = "/code/omr/inputs/page_1";
-    const destinationDir2 = "/code/omr/inputs/page_2";
-    // const singlePageDir = "/code/omr/inputs";
+    const destinationDir = "/code/omr/inputs";
 
     try {
-      const existingPdfBytes = fs.readFileSync(tempFilePath);
-      const examsPDF = await PDFDocument.load(existingPdfBytes);
-      const totalPages = examsPDF.getPageCount();
-      console.log("Total pages:", totalPages);
-
-      if ((examType === "custom" && numQuestions <= 100)) {
-        // Handle 100mcq or custom templates with 100 or fewer questions (1 page)
-        ensureDirectoryExistence(destinationDir1);
-        const examBytes = await examsPDF.save();
-        fs.writeFileSync(path.join(destinationDir1, "exam.pdf"), examBytes);
-        res.json({ message: "Exam uploaded successfully with one page." });
-      } else if (examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq") {
-        // Handle 200mcq or custom templates with more than 100 questions (2 pages)
-        const oddPagesPdf = await PDFDocument.create();
-        const evenPagesPdf = await PDFDocument.create();
-
-        for (let i = 0; i < totalPages; i++) {
-          if ((i + 1) % 2 === 1) {
-            const [pageToCopy] = await oddPagesPdf.copyPages(examsPDF, [i]);
-            oddPagesPdf.addPage(pageToCopy);
-          } else {
-            const [pageToCopy] = await evenPagesPdf.copyPages(examsPDF, [i]);
-            evenPagesPdf.addPage(pageToCopy);
-          }
+      fs.copyFileSync(tempFilePath, path.join(destinationDir, "exam.pdf"));
+      console.log(examType, numQuestions);
+      if (examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq") {
+        const response = await fetch("http://flaskomr:5000/split_pdf", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            doubleSide: true
+          })
+        });
+        
+        if (!response.ok) {
+          throw new Error("PDF split failed");
         }
-        ensureDirectoryExistence(destinationDir1);
-        ensureDirectoryExistence(destinationDir2);
+      } 
+      else {
+        const response = await fetch("http://flaskomr:5000/split_pdf", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            doubleSide: false
+          })
+        });
 
-        const oddBytes = await oddPagesPdf.save();
-        fs.writeFileSync(path.join(destinationDir1, "front_pages.pdf"), oddBytes);
-        const evenBytes = await evenPagesPdf.save();
-        fs.writeFileSync(path.join(destinationDir2, "back_pages.pdf"), evenBytes);
-
-        fs.unlinkSync(tempFilePath); // Clean up the temporary file
-
-        res.json({ message: "Exam uploaded and split successfully." });
-      } else {
-        return res.status(400).send("Invalid exam type or number of questions.");
+        if (!response.ok) {
+          throw new Error("PDF split failed");
+        }
       }
+      fs.unlinkSync(tempFilePath); // Delete the temporary file
+      res.json({ message: "Exam uploaded successfully" });
+      
     } catch (error) {
       console.error("Error processing PDF file:", error);
       res.status(500).send("Error processing PDF file");
