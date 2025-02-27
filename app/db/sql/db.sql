@@ -59,7 +59,7 @@ CREATE TABLE exam (
 CREATE TABLE solution (
     solution_id serial primary key,
     exam_id int not null,
-    answers text[],
+    answers JSONB,
     filepath text,
     marking_schemes JSONB,
     foreign key (exam_id) references exam(exam_id)
@@ -77,11 +77,29 @@ CREATE TABLE studentResults(
     student_id text not null,
     exam_id int not null,
     chosen_answers JSONB,
+    initial_chosen_answers JSONB, -- This field will store the initial record chosen answers as scanned
     grade int,
     grade_changelog text[],
     foreign key (exam_id) references exam(exam_id),
     foreign key (student_id) references student(student_id)
 );
+
+-- Trigger to copy chosen_answers to updated_chosen_answers on first insert
+CREATE FUNCTION copy_chosen_answers() RETURNS TRIGGER AS
+$$
+BEGIN
+    IF NEW.initial_chosen_answers IS NULL THEN
+        NEW.initial_chosen_answers = NEW.chosen_answers;
+        RETURN NEW;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_initial_chosen_answers
+    BEFORE INSERT ON studentResults
+    FOR EACH ROW
+EXECUTE FUNCTION copy_chosen_answers();
+
 
 CREATE TABLE scannedExam(
     scan_id serial primary key,
@@ -89,6 +107,18 @@ CREATE TABLE scannedExam(
     page_count int,
     filepath text,
     foreign key (exam_id) references exam(exam_id)
+);
+
+CREATE TABLE "grade_appeals"(
+    "grade_appeal_id" serial primary key,
+    "exam_id" int not null,
+    "student_id" text not null,
+    "appeal_details" JSONB,
+    "appeal_time" timestamp default now(),
+    "reply_details" JSONB,
+    "reply_time" timestamp,
+    foreign key (exam_id) references exam(exam_id),
+    foreign key (student_id) references student(student_id)
 );
 
 
@@ -115,7 +145,7 @@ CREATE TABLE admins(
 );
 
 CREATE TABLE "session" (
-    "sid" varchar NOT NULL COLLATE "default",
+    "sid" varchar COLLATE "default" NOT NULL,
     "sess" json NOT NULL,
     "expire" timestamp(6) NOT NULL
 )

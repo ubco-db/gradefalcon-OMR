@@ -166,7 +166,7 @@ const getAnswerKeyForExam = async (exam_id) => {
     const answersArray = solutionResult.rows[0].answers; // This should be a JSON array
 
     // Extract the answers in order
-    const answersInOrder = answersArray.map((answer) => answer.split(":")[1]);
+    const answersInOrder = answersArray.map((answer) => Object.values(answer)[0]);
 
     return answersInOrder;
   } catch (error) {
@@ -376,7 +376,6 @@ async function getCustomMarkingSchemes(exam_id) {
       },
     };
   });
-
   return transformedSchemes;
 }
 
@@ -776,7 +775,7 @@ const fetchSolution = async (req, res, next) => {
     const answersArray = solutionResult.rows[0].answers; // This should be a JSON array
 
     // Extract the answers in order
-    const answersInOrder = answersArray.map((answer) => answer.split(":")[1]);
+    const answersInOrder = answersArray.map((answer) => Object.values(answer)[0]);
 
     res.json(answersInOrder);
   } catch (error) {

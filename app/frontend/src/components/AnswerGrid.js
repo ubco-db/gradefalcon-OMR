@@ -58,17 +58,12 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
       student: {}
     };
 
+    // Format correct answers from [{q1:A},{q2:B}] to {q1:A,q2:B}
     if (Array.isArray(correctAnswers)) {
-      correctAnswers.forEach((answer, index) => {
-        if (answer.includes(':')) {
-          // Format: ['1:E', '2:E']
-          const [questionNum, value] = answer.split(':');
-          formatted.correct[`q${questionNum}`] = value;
-        } else {
-          // Format: ['E', 'E', 'E']
-          formatted.correct[`q${index + 1}`] = answer;
-        }
-      });
+      correctAnswers.forEach(answers => {
+        const[[key, value]] = Object.entries(answers);
+        formatted.correct[key] = value;
+      })
     }
 
     // Format student answers from [{q1:A},{q2:B}] to {q1:A,q2:B}
