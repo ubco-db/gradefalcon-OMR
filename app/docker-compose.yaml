@@ -8,7 +8,8 @@ services:
       context: backend
       target: development
     command: npm run start-watch
-
+    env_file:
+      - ./backend/.env.docker
     environment:
       - DATABASE_DB=root
       - DATABASE_USER=root
@@ -17,14 +18,6 @@ services:
       - NODE_ENV=development
       - JWT_SECRET=secret
       - DATABASE_PORT=5432
-      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-      - AWS_REGION=${AWS_REGION}
-      - REACT_APP_AUTH0_DOMAIN=${REACT_APP_AUTH0_DOMAIN}
-      - REACT_APP_AUTH0_AUDIENCE=${REACT_APP_AUTH0_AUDIENCE}
-      - REACT_APP_AUTH0_CLIENT_ID=${REACT_APP_AUTH0_CLIENT_ID}
-      - REACT_APP_AUTH0_CLIENT_SECRET=${REACT_APP_AUTH0_CLIENT_SECRET}
-      - REACT_APP_AUTH0_MYAPP=${REACT_APP_AUTH0_MYAPP}
     ports:
       - 80:80
       - 9229:9229
@@ -67,6 +60,8 @@ services:
     volumes:
       - ./frontend/src:/code/src
       - /code/node_modules
+    env_file:
+      - ./backend/.env.docker
     networks:
       - app-network
     depends_on:
