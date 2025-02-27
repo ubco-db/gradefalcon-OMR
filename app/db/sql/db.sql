@@ -45,6 +45,7 @@ CREATE TABLE exam (
     total_questions int,
     total_marks int,
     template text,
+    template_file JSONB[],
     mean double precision,
     high double precision,
     low double precision,
@@ -79,6 +80,7 @@ CREATE TABLE studentResults(
     chosen_answers JSONB,
     grade int,
     grade_changelog text[],
+    image_uuids JSONB DEFAULT '{}', -- Store UUIDs in format {page1: {original: uuid, results: uuid}, page2: {original: uuid, results: uuid}}
     foreign key (exam_id) references exam(exam_id),
     foreign key (student_id) references student(student_id)
 );

@@ -80,6 +80,29 @@ services:
       - omr-outputs:/app/outputs
     networks:
       - app-network
+    depends_on:
+      - cassandra
+
+  cassandra:
+    image: cassandra:latest
+    container_name: cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=gradefalcon
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+      - ./db/cassandra:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    networks:
+      - app-network
 
 
 networks:
@@ -90,3 +113,4 @@ volumes:
   db-data:
   omr-inputs:
   omr-outputs:
+  cassandra-data:
