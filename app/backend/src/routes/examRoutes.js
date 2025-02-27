@@ -35,6 +35,17 @@ const { PDFDocument } = require("pdf-lib");
 const multer = require("multer");
 const { formatWithOptions } = require("util");
 const e = require("express");
+const { Pool } = require('pg');
+const config = require('../config');
+
+// PostgreSQL connection for image UUIDs operations
+const pool = new Pool({
+  user: config.database.user,
+  host: config.database.host,
+  database: config.database.database,
+  password: config.database.password,
+  port: config.database.port,
+});
 const router = express.Router();
 const combinedUpload = multer().fields([
   { name: 'examKey', maxCount: 1 },
@@ -94,65 +105,34 @@ router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
 // Add this route to the examRoutes.js file
 
 router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
-  const { examType, numQuestions } = req.body; // Get examType and numQuestions from the request body
-
-  // Determine the correct file path based on examType and numQuestions
-  const filePath = (examType === "custom" && numQuestions <= 100)
-    ? path.join(__dirname, "../../omr/outputs/page_1/Results/Results.csv")
-    : path.join(__dirname, "../../omr/outputs/combined.csv");
-
-  const results = []; // Array to hold student number and score
-
-  fs.createReadStream(filePath)
-    .pipe(csv())
-    .on("data", (data) => {
-
-      let result = {};
-      if (examType === "custom" && numQuestions <= 100) {
-        // Only grab the front page for custom templates with 100 or fewer questions
-        result = {
-          StudentID: data.StudentID,
-          Score: data.score,
-          front_page: data.file_id, // Grab only the front page
-        };
-      } else {
-        // Handle the case for other types (e.g., 100mcq, 200mcq, custom with more than 100 questions)
-        result = {
-          StudentID: data.StudentID,
-          Score: data.score,
-          front_page: data.front_page_file_id,
-          back_page: data.back_page_file_id,
-        };
+  try {
+    // Fetch student scores directly from the OMR service
+    const response = await fetch("http://flaskomr:5000/student_scores", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json"
       }
-      // Add question fields
-      Object.keys(data).forEach((key) => {
-        if (key.startsWith("q") && data[key].trim() !== "") {
-          result[key] = data[key];
-        }
-      });
-
-      results.push(result);
-    })
-    .on("end", async () => {
-      try {
-        // Map each result to include the student name
-        const resultsWithNames = await Promise.all(
-          results.map(async (result) => {
-            const studentName = await getStudentNameById(result.StudentID); // Assuming this function exists and returns the student's name
-            return { StudentName: studentName, ...result };
-          })
-        );
-
-        res.json(resultsWithNames); // Send the data including student names as a response
-      } catch (error) {
-        console.error("Error fetching student names:", error);
-        res.status(500).send("Error fetching student names");
-      }
-    })
-    .on("error", (error) => {
-      console.error("Error reading CSV file:", error);
-      res.status(500).send("Error reading CSV file");
     });
+    
+    if (!response.ok) {
+      throw new Error(`OMR service returned status: ${response.status}`);
+    }
+    
+    const studentScores = await response.json();
+    
+    // Map each result to include the student name
+    const resultsWithNames = await Promise.all(
+      studentScores.map(async (result) => {
+        const studentName = await getStudentNameById(result.StudentID);
+        return { StudentName: studentName, ...result };
+      })
+    );
+    
+    res.json(resultsWithNames);
+  } catch (error) {
+    console.error("Error fetching student scores:", error);
+    res.status(500).send("Error fetching student scores");
+  }
 });
 
 
@@ -271,64 +251,65 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
   }
 });
 
-// Save student exams to the backend
+// Save student exams to the database
 router.post("/saveStudentExams", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
-  // we will be saving whatever is in the omr outputs folder
-  // we just need to figure out where to save which page
-  // recall: a student has their front page and back page in different folders
-  // front page in /outputs/page_1 and back page in /outputs/page_2
-  // data is an array of objects
-  // Object: {Score, StudentID, StudentName, back_page, front_page}
-  // dest: /code/upload/Students/exam_id_${exam_id}/student_id_${student_id}
-  // We will be copying both front & back page to this folder
-  // path for front page: /code/omr/outputs/page_1/CheckedOMRs/colored/${front_page}
-  // path for back page: /code/omr/outputs/page_2/CheckedOMRs/colored/${back_page}
+  // Now we save the image UUIDs instead of copying files
+  // data structure is now:
+  // Object: {
+  //   Score, StudentID, StudentName, 
+  //   image_uuids: {
+  //     page1: { original: "uuid1", results: "uuid2" },
+  //     page2: { original: "uuid3", results: "uuid4" }
+  //   }
+  // }
 
   const exam_id = req.body.exam_id;
   const studentData = req.body.data;
-  const examType = req.body.examType; // Assume you are passing examType in the request body
-  const numQuestions = parseInt(req.body.numQuestions, 10); // Assume you are passing numQuestions in the request body
-
+  
   try {
+    // Save each student's data with image UUIDs to PostgreSQL
     for (const student of studentData) {
       const student_id = student.StudentID;
-      const destFilePath = path.join(__dirname, `../../uploads/Students/exam_id_${exam_id}/student_id_${student_id}`);
-
-      const front_page_path = path.join(__dirname, `../../omr/outputs/page_1/CheckedOMRs/colored/${student.front_page}`);
-      const original_front_page_path = path.join(__dirname, `../../omr/inputs/page_1/${student.front_page}`);
-      const front_page_dest = path.join(destFilePath, "front_page.png");
-      const original_front_page_dest = path.join(destFilePath, "original_front_page.png");
-
-      ensureDirectoryExistence(destFilePath);
-
-      try {
-        fs.copyFileSync(front_page_path, front_page_dest);
-        console.log("First page copied successfully");
-        fs.copyFileSync(original_front_page_path, original_front_page_dest);
-        console.log("Original First page copied successfully");
-
-        // Only attempt to copy the back page if it's not a custom exam with 100 or fewer questions
-        if (!(examType === "custom" && numQuestions <= 100)) {
-          const back_page_path = path.join(__dirname, `../../omr/outputs/page_2/CheckedOMRs/colored/${student.back_page}`);
-          const original_back_page_path = path.join(__dirname, `../../omr/inputs/page_2/${student.back_page}`);
-          const back_page_dest = path.join(destFilePath, "back_page.png");
-          const original_back_page_dest = path.join(destFilePath, "original_back_page.png");
-
-          fs.copyFileSync(back_page_path, back_page_dest);
-          console.log("Second page copied successfully");
-          fs.copyFileSync(original_back_page_path, original_back_page_dest);
-          console.log("Original Second page copied successfully");
-        } else {
-          console.log("Skipping back page copy for custom exam with 100 or fewer questions.");
+      const chosen_answers = {};
+      
+      // Extract question answers
+      Object.keys(student).forEach(key => {
+        if (key.startsWith('q') && student[key].trim() !== '') {
+          chosen_answers[key] = student[key];
         }
-      } catch (error) {
-        console.log("Error copying files:", error);
+      });
+      
+      // Store the results in the database
+      try {
+        const query = `
+          INSERT INTO studentResults (student_id, exam_id, chosen_answers, grade, image_uuids)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (student_id, exam_id) 
+          DO UPDATE SET 
+            chosen_answers = $3, 
+            grade = $4, 
+            image_uuids = $5
+        `;
+        
+        await pool.query(query, [
+          student_id, 
+          exam_id, 
+          JSON.stringify(chosen_answers), 
+          parseInt(student.Score, 10), 
+          JSON.stringify(student.image_uuids || {})
+        ]);
+        
+        console.log(`Student ${student_id} exam data saved successfully`);
+      } catch (dbError) {
+        console.error(`Error saving student ${student_id} data to database:`, dbError);
+        throw dbError;
       }
     }
-    res.send({ message: "Student exam saved successfully" });
+    
+    res.send({ message: "Student exam data saved successfully" });
   } catch (error) {
-    console.error("Error saving student exam:", error);
-    res.status(500).send("Error saving student exam");
+    console.error("Error saving student exam data:", error);
+    res.status(500).send("Error saving student exam data");
   }
 });
 
@@ -685,104 +666,8 @@ router.post("/saveResults", saveResults);
 // Create a CSV file with the following fields:
 // "front_page_id", "back_page_id", "score", "student_id", "question_1", "question_2", ..., "question_100"
 
-router.get("/preprocessingCSV", checkJwt, checkPermissions(["upload:file"]), async (req, res) => {
-  console.log("Hello from preprocessingCSV");
-  const frontPagePath = path.join(__dirname, "../../omr/outputs/page_1/Results/Results.csv");
-  const backPagePath = path.join(__dirname, "../../omr/outputs/page_2/Results/Results.csv");
-  const outputPath = path.join(__dirname, "../../omr/outputs/combined.csv");
-
-  ensureDirectoryExistence(path.join(__dirname, "../../omr/outputs"));
-
-  const frontPageData = [];
-  const backPageData = [];
-
-  // Read front_page.csv
-  fs.createReadStream(frontPagePath)
-    .pipe(csv())
-    .on("data", (data) => {
-      const frontData = {
-        front_page_file_id: data.file_id,
-        FirstName: data.FirstName,
-        LastName: data.LastName,
-        StudentID: data.StudentID,
-        score: data.score,
-      };
-
-      // Add question fields
-      Object.keys(data).forEach((key) => {
-        if (key.startsWith("q")) {
-          frontData[key] = data[key];
-        }
-      });
-
-      frontPageData.push(frontData);
-    })
-    .on("end", () => {
-      // Read back_page.csv
-      fs.createReadStream(backPagePath)
-        .pipe(csv())
-        .on("data", (data) => {
-          const backData = {
-            back_page_file_id: data.file_id,
-            score: data.score,
-          };
-
-          // Add question fields
-          Object.keys(data).forEach((key) => {
-            if (key.startsWith("q")) {
-              backData[key] = data[key];
-            }
-          });
-
-          backPageData.push(backData);
-        })
-        .on("end", () => {
-          // Combine data from both CSV files
-          const combinedData = frontPageData.map((frontData) => {
-            const backData = backPageData.find((back) => back.back_page_file_id.slice(-6) === frontData.front_page_file_id.slice(-6));
-            const combined = {
-              ...frontData,
-              back_page_file_id: backData ? backData.back_page_file_id : null,
-              score: backData && frontData ? parseInt(backData.score, 10) + parseInt(frontData.score, 10) : null,
-            };
-
-            // Combine question fields
-            if (backData) {
-              Object.keys(backData).forEach((key) => {
-                if (key.startsWith("q")) {
-                  combined[key] = backData[key];
-                }
-              });
-            }
-
-            return combined;
-          });
-
-          // Convert combined data to CSV format
-          const json2csvParser = new Parser();
-          const csvData = json2csvParser.parse(combinedData);
-
-          // Save the combined CSV data to a file
-          fs.writeFile(outputPath, csvData, (err) => {
-            if (err) {
-              console.log("Error writing combined.csv:", err);
-              res.status(500).json("Error writing combined.csv");
-            } else {
-              console.log("Combined CSV file saved successfully.");
-              res.status(200).json("Combined CSV file saved successfully.");
-            }
-          });
-        })
-        .on("error", (error) => {
-          console.error("Error reading back_page.csv:", error);
-          res.status(500).json("Error reading back_page.csv");
-        });
-    })
-    .on("error", (error) => {
-      console.error("Error reading front_page.csv:", error);
-      res.status(500).json("Error reading front_page.csv");
-    });
-});
+// This endpoint is no longer needed as the OMR service now handles merging results and storing images
+// The new /student_scores endpoint in the OMR service directly returns the processed data with UUIDs
 
 router.post("/fetchStudentExam/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), fetchStudentExam);
 

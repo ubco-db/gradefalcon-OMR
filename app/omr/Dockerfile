@@ -15,6 +15,7 @@ RUN apt-get update -y && \
     libavcodec-dev libavformat-dev libswscale-dev libv4l-dev \
     libatlas-base-dev gfortran && \
     apt-get install -y poppler-utils && \ 
+    apt-get install -y libssl-dev && \
     apt-get clean && \
     apt-get -y autoremove
     
