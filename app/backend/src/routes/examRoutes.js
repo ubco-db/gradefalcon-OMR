@@ -35,17 +35,9 @@ const { PDFDocument } = require("pdf-lib");
 const multer = require("multer");
 const { formatWithOptions } = require("util");
 const e = require("express");
-const { Pool } = require('pg');
 const config = require('../config');
+const pool = require('../utils/db');
 
-// PostgreSQL connection for image UUIDs operations
-const pool = new Pool({
-  user: config.database.user,
-  host: config.database.host,
-  database: config.database.database,
-  password: config.database.password,
-  port: config.database.port,
-});
 const router = express.Router();
 const combinedUpload = multer().fields([
   { name: 'examKey', maxCount: 1 },
@@ -581,19 +573,8 @@ router.post("/callOMR", checkJwt, checkPermissions(["upload:file"]), async funct
   }
 });
 
-// Route to fetch the first PNG image in the folder
-router.post("/fetchImage", checkJwt, checkPermissions(["read:image"]), async function (req, res) {
-  const imagesFolderPath = path.join(__dirname, req.body.file_name);
-  console.log(imagesFolderPath);
-  console.log(req.body.file_name);
-  try {
-    // imagesFolderPath = path.resolve(__dirname, `../../uploads/Students/exam_id_5/student_id_1/${filename}`);
-    res.sendFile(imagesFolderPath);
-  } catch (error) {
-    console.error("Error fetching image:", error);
-    res.status(500).send("Error fetching image");
-  }
-});
+// Images are now handled by the imageController
+// The /api/images/exam/:examId/student/:studentId endpoint should be used instead
 
 router.get("/getScoreByExamId/:exam_id", checkJwt, checkPermissions(["read:grades"]), async (req, res) => {
   try {

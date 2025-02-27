@@ -56,55 +56,82 @@ const ViewReport = () => {
   }, [report_id, getAccessTokenSilently]);
 
   const fetchImages = async (student_id, exam_id, token) => {
+    // Validate required parameters
+    if (!student_id || !exam_id) {
+      console.error("Missing required parameters for fetching images");
+      return;
+    }
+
     try {
-      const path = `../../uploads/Students/exam_id_${exam_id}/student_id_${student_id}/`;
-
-      const frontPageResponse = await fetch("/api/exam/fetchImage", {
-        method: "POST",
+      // Fetch all exam images at once from the new image service endpoint
+      const response = await fetch(`/api/images/exam/${exam_id}/student/${student_id}`, {
+        method: "GET",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ side: "front", file_name: `${path}front_page.png` }),
       });
-      const frontBlob = await frontPageResponse.blob();
-      setFrontSrc(URL.createObjectURL(frontBlob));
 
-      const backPageResponse = await fetch("/api/exam/fetchImage", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ side: "back", file_name: `${path}back_page.png` }),
-      });
-      const backBlob = await backPageResponse.blob();
-      setBackSrc(URL.createObjectURL(backBlob));
+      if (!response.ok) {
+        throw new Error(`Failed to fetch images: ${response.status}`);
+      }
 
-      const originalFrontResponse = await fetch("/api/exam/fetchImage", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ side: "front", file_name: `${path}original_front_page.png` }),
-      });
-      const originalFrontBlob = await originalFrontResponse.blob();
-      setOriginalFront(URL.createObjectURL(originalFrontBlob));
+      const data = await response.json();
+      
+      // Check if we have images data
+      if (!data.images) {
+        console.error("No images found in response");
+        return;
+      }
 
-      const originalBackResponse = await fetch("/api/exam/fetchImage", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ side: "back", file_name: `${path}original_back_page.png` }),
-      });
-      const originalBackBlob = await originalBackResponse.blob();
-      setOriginalBack(URL.createObjectURL(originalBackBlob));
+      // Process images from response
+      const { images } = data;
+
+      // Handle page1 images if they exist
+      if (images.page1) {
+        // Front page (results)
+        if (images.page1.results) {
+          const frontImgBlob = base64ToBlob(images.page1.results);
+          setFrontSrc(URL.createObjectURL(frontImgBlob));
+        }
+
+        // Original front page
+        if (images.page1.original) {
+          const originalFrontImgBlob = base64ToBlob(images.page1.original);
+          setOriginalFront(URL.createObjectURL(originalFrontImgBlob));
+        }
+      }
+
+      // Handle page2 images if they exist
+      if (images.page2) {
+        // Back page (results)
+        if (images.page2.results) {
+          const backImgBlob = base64ToBlob(images.page2.results);
+          setBackSrc(URL.createObjectURL(backImgBlob));
+        }
+
+        // Original back page
+        if (images.page2.original) {
+          const originalBackImgBlob = base64ToBlob(images.page2.original);
+          setOriginalBack(URL.createObjectURL(originalBackImgBlob));
+        }
+      }
     } catch (error) {
       console.error("Error fetching images:", error);
     }
+  };
+
+  // Helper function to convert base64 to Blob
+  const base64ToBlob = (base64) => {
+    const byteString = atob(base64);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    
+    return new Blob([ab], { type: 'image/png' });
   };
 
   const handleGradeChange = (e) => {
