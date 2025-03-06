@@ -612,7 +612,7 @@ router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read
   }
 });
 
-
+// BUG lack permission checking
 router.post("/saveResults", saveResults);
 
 // router.get("/searchExam/:student_id", checkJwt, checkPermissions(["read:students"]), async (req, res) => {
@@ -654,7 +654,8 @@ router.post("/fetchStudentExam/:exam_id", checkJwt, checkPermissions(["read:exam
 
 router.post("/fetchSolution/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), fetchSolution);
 
-router.post("/changeGrade", checkJwt, checkPermissions(["read:exam_student"]), changeGrade);
+router.post("/changeGrade", checkJwt, checkPermissions(["update_grades"]), changeGrade);
+
 
 //test routes
 router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {

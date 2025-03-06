@@ -14,6 +14,7 @@ const uploadRoutes = require('./routes/uploadRoutes');
 const courseRoutes = require('./routes/courseRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const imageRoutes = require('./routes/imageRoutes');
+const gradeAppealRoutes = require('./routes/gradeAppealRoutes');
 
 const app = express();
 
@@ -65,7 +66,7 @@ app.use('/courses', checkJwt, courseRoutes);
 app.use('/reports', checkJwt, reportRoutes);
 app.use('/images', checkJwt, imageRoutes);
 app.post('/token', getAuth0ManagementToken); // New route for token generation
-
+app.post('/gradeappeal', checkJwt, gradeAppealRoutes);
 app.get('/api/public', (req, res) => {
   res.json({
     message: 'Hello from a public endpoint! You don\'t need to be authenticated to see this.'
