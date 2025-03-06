@@ -18,7 +18,9 @@ const saveQuestions = async (req, res, next) => {
     canViewAnswers,
   });
 
-  const questionsArray = Object.entries(questions).map(([key, value]) => `${value.question}:${value.option}`);
+
+  // { ["question: 1"]: "A", ["question: 2"]: "B" } => [{ q1: "A" }, { q2: "B" }]
+  const questionsArray = questions.map((o) => ({ [`q${o.question}`]: o.option }));
 
   try {
     const writeToExam = await pool.query(
@@ -29,7 +31,7 @@ const saveQuestions = async (req, res, next) => {
 
     const writeToSolution = await pool.query("INSERT INTO solution (exam_id, answers, marking_schemes) VALUES ($1, $2, $3)", [
       insertedRowId,
-      questionsArray,
+      JSON.stringify(questionsArray),
       JSON.stringify(markingSchemes),
     ]);
 
@@ -166,7 +168,7 @@ const getAnswerKeyForExam = async (exam_id) => {
     const answersArray = solutionResult.rows[0].answers; // This should be a JSON array
 
     // Extract the answers in order
-    const answersInOrder = answersArray.map((answer) => answer.split(":")[1]);
+    const answersInOrder = answersArray.map((answer) => Object.values(answer)[0]);
 
     return answersInOrder;
   } catch (error) {
@@ -376,7 +378,6 @@ async function getCustomMarkingSchemes(exam_id) {
       },
     };
   });
-
   return transformedSchemes;
 }
 
@@ -764,6 +765,9 @@ const fetchStudentExam = async (req, res, next) => {
   }
 };
 
+/*
+ return answer array like ["A", "B", "C", "D"]
+ */
 const fetchSolution = async (req, res, next) => {
   const exam_id = req.params.exam_id;
   try {
@@ -776,7 +780,7 @@ const fetchSolution = async (req, res, next) => {
     const answersArray = solutionResult.rows[0].answers; // This should be a JSON array
 
     // Extract the answers in order
-    const answersInOrder = answersArray.map((answer) => answer.split(":")[1]);
+    const answersInOrder = answersArray.map((answer) => Object.values(answer)[0]);
 
     res.json(answersInOrder);
   } catch (error) {

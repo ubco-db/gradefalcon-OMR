@@ -39,6 +39,7 @@ const NewExamForm = ({ setIsDialogOpen, onExamCreated }) => {
     }
     try {
       const token = await getAccessTokenSilently(); // Get the token
+      // BUG: There is not usage of this exam api, it actually use saveQuestions api instead
       const response = await fetch("/api/exam/create", {
         method: "POST",
         headers: {
