@@ -1,12 +1,32 @@
 import { Card, CardHeader, CardTitle, CardContent } from "./ui/card";
 import { ScrollArea } from "./ui/scroll-area";
-import React, { useCallback, useMemo, useState } from "react";
+import React, {useCallback, useEffect, useMemo, useState} from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+import useGradeAppealApi from "../api/useGradeAppealApi";
 
-export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) => {
+export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, appealing=false, examId=null, studentId=null }) => {
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [confirmations, setConfirmations] = useState({});
+  const [ canSubmitAppeal, setCanSubmitAppeal ] = useState(false);
+  const { submitAppeal, hasUnresolvedAppeals } = useGradeAppealApi();
+
+
+  useEffect(() => {
+    
+    const fetchUnresolvedAppeals =  async () => {
+      const hasUnresolved = await hasUnresolvedAppeals(examId, studentId);
+        setCanSubmitAppeal(!hasUnresolved);
+        console.log("Can submit appeal:", !hasUnresolved);
+    }
+    fetchUnresolvedAppeals();
+    setSelectedAnswers({});
+    setConfirmations({});
+  }, [examId, studentId]);
+
+  
 
   const handleAnswerClick = (questionKey, option) => {
+    if (!appealing || !canSubmitAppeal ) return;
     setSelectedAnswers(prev => {
       const newSelectedAnswers = { ...prev };
       if (newSelectedAnswers[questionKey]?.includes(option)) {
@@ -22,12 +42,14 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
   };
 
   const handleConfirmClick = (questionKey) => {
+    if (!appealing || !canSubmitAppeal) return;
     setConfirmations(prev => ({
       ...prev,
       [questionKey]: true
     }));
   };
   const handleUndoClick = (questionKey) => {
+    if (!appealing || !canSubmitAppeal ) return;
     setSelectedAnswers(prev => {
       const newSelectedAnswers = { ...prev };
       delete newSelectedAnswers[questionKey];
@@ -43,13 +65,13 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
   const allSelectedConfirmed = Object.keys(selectedAnswers).every(qKey => confirmations[qKey]);
 
 
-  const handleSubmit = () => {
-    const modifiedAnswers = Object.keys(selectedAnswers).reduce((acc, key) => {
-      acc[key] = selectedAnswers[key];
-      return acc;
-    }, {});
+  const handleSubmit = async () => {
+    if (!appealing || !canSubmitAppeal ) return;
+    const modifiedAnswers = Object.keys(selectedAnswers)
+        .filter(qKey => confirmations[qKey] && selectedAnswers[qKey][0] !== answers.student[qKey])
+        .map(qKey => ({ [qKey]: selectedAnswers[qKey][0] }));
 
-    console.log("Submitting Answers:", JSON.stringify(modifiedAnswers, null, 2));
+    const res = await submitAppeal(examId, studentId, modifiedAnswers);
   };
 
   const formatAnswers = useCallback(() => {
@@ -81,7 +103,7 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
       <CardHeader className="flex flex-row items-center bg-muted/50 px-6 py-4">
         <CardTitle>Answer Comparison</CardTitle>
       </CardHeader>
-      <CardContent className="h-[400px] p-6">
+      <CardContent className="h-[400px] p-6 border-b rounded-lg text-sm xxl:text-base">
         <ScrollArea className="h-full w-full">
           <div className="answer-bubble-grid space-y-2">
             {Array.from({ length: totalQuestions }, (_, i) => {
@@ -129,23 +151,23 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
                       );
                     })}
                   </div>
-                  {selectedAnswers[qKey] && !confirmations[qKey] && (
-                    <>
+                  {appealing && selectedAnswers[qKey] && !confirmations[qKey] && (
+                    <div className="flex ml-auto gap-2">
                     <button
-                      className="ml-4 px-3 py-1 bg-blue-500 text-white rounded-full"
+                      className="ml-2 px-3 py-1 bg-blue-500 text-white rounded-full"
                       onClick={() => handleConfirmClick(qKey)}
                     >
                       Confirm
                     </button>
                     <button
-                      className="ml-4 px-3 py-1 bg-red-500 text-white rounded-full"
+                      className="ml-2 px-3 py-1 bg-red-500 text-white rounded-full"
                       onClick={() => handleUndoClick(qKey)}
                     >
                       Undo
                     </button>
-                    </>
+                    </div>
                   )}
-                  {confirmations[qKey] && selectedAnswers[qKey] !== answers.student[qKey] && (
+                  {appealing && confirmations[qKey] && selectedAnswers[qKey] !== answers.student[qKey] && (
                     <button
                       className="ml-4 px-3 py-1 bg-red-500 text-white rounded-full"
                       onClick={() => handleUndoClick(qKey)}
@@ -158,15 +180,55 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers }) =
             })}
           </div>
         </ScrollArea>
-        {allSelectedConfirmed && (
-          <button
-            className="mt-4 px-4 py-2 bg-green-600 text-white font-bold rounded-lg w-full"
-            onClick={handleSubmit}
-          >
-            Submit Answers
-          </button>
-        )}
+      </CardContent>
+      <CardContent>
+        {appealing &&  (
+             <ButtonContainer
+               isAllSelectConfirmed={allSelectedConfirmed}
+                canSubmit={canSubmitAppeal}
+                handleSubmit={handleSubmit}
+             >
+             </ButtonContainer>
+        )
+
+
+}
       </CardContent>
     </Card>
   );
 };
+
+
+
+const ButtonContainer = ({isAllSelectConfirmed, canSubmit, handleSubmit}) => {
+  let buttonText = "Submit";
+  let buttonTitle = "Cannot submit appeal. You have unresolved appeals.";
+  const disabled = !(isAllSelectConfirmed && canSubmit);
+  const disabledStyle = "mt-4 px-4 py-2 bg-gray-400 text-white font-bold rounded-lg w-full";
+  const enabledStyle = "mt-4 px-4 py-2 bg-green-600 text-white font-bold rounded-lg w-full";
+
+  console.log("ButtonContainer", disabled? disabledStyle : enabledStyle);
+  console.log("Disabled", disabled);
+  console.log("isAllselectConfirmed", isAllSelectConfirmed);
+  console.log("cansubmit", canSubmit);
+
+  
+  if (canSubmit && !isAllSelectConfirmed) {
+    buttonTitle = "Cannot submit, you have to confirm all selections";
+  }
+  if (!disabled) {
+    buttonTitle = "Click to submit";
+  }
+
+  return (
+    <button
+      className={disabled? disabledStyle : enabledStyle}
+      disabled={disabled}
+      title={buttonTitle}
+    onClick={handleSubmit}
+    >
+      {buttonText}
+    </button>
+  )
+  
+}

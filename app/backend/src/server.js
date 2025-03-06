@@ -64,7 +64,7 @@ app.use('/upload', checkJwt, uploadRoutes);
 app.use('/courses', checkJwt, courseRoutes);
 app.use('/reports', checkJwt, reportRoutes);
 app.post('/token', getAuth0ManagementToken); // New route for token generation
-app.post('/gradeappeal', checkJwt, gradeAppealRoutes);
+app.use('/gradeappeal', checkJwt, gradeAppealRoutes);
 app.get('/api/public', (req, res) => {
   res.json({
     message: 'Hello from a public endpoint! You don\'t need to be authenticated to see this.'

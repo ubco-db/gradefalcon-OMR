@@ -100,7 +100,7 @@ export default function ViewExamDetails() {
     const fetchSolution = async () => {
       try {
         const token = await getAccessTokenSilently();
-        const response = await fetch(`/api/exam/fetchSolution/${exam_id}`, {
+        const response = await fetch(`/api/exam/fetchSolutionAnswers/${exam_id}`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
