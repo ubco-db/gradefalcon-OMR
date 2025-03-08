@@ -42,6 +42,9 @@ import ViewExamDetails from './pages/Student/ViewExamDetails';
 import SubmitReport from './pages/Student/SubmitReport';
 import StudentReportsDashboard from './pages/Student/StudentReportsDashboard';
 
+// grade appeal pages
+import ReplyAppeal from "./pages/Instructor/ReplyAppeal";
+
 function App() {
   return (
     <Router>
@@ -82,7 +85,8 @@ function App() {
           <Route path="/ViewExamDetails" element={<ProtectedRoute roles={['Student']}><StudentLayout><ViewExamDetails /></StudentLayout></ProtectedRoute>} />
           <Route path="SubmitReport" element={<ProtectedRoute roles={['Student']}><StudentLayout><SubmitReport /></StudentLayout></ProtectedRoute>} />
           <Route path="/StudentReportsDashboard" element={<ProtectedRoute roles={['Student']}><StudentLayout><StudentReportsDashboard /></StudentLayout></ProtectedRoute>} />
-
+          {/* grade appeal routes */}
+          <Route path="/ReplyAppeal/:grade_appeal_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ReplyAppeal /></Layout></ProtectedRoute>} />
           {/* Fallback for unmatched routes */}
           <Route path="*" element={<NotFound />} />
         </Routes>

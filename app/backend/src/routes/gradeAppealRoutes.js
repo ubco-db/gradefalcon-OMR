@@ -1,4 +1,4 @@
-const { submitGradeAppeal, respondGradeAppeal, fetchStudentResolvedGradeAppeals, fetchStudentUnresolvedGradeAppeals, fetchExamUnresolvedGradeAppeals } = require ('../controllers/gradeAppealController');
+const {fetchGradeAppealById, submitGradeAppeal, respondGradeAppeal, fetchStudentResolvedGradeAppeals, fetchStudentUnresolvedGradeAppeals, fetchExamUnresolvedGradeAppeals } = require ('../controllers/gradeAppealController');
 
 const express = require('express');
 
@@ -9,4 +9,6 @@ router.post('/respond', respondGradeAppeal)
 router.get('/resolved/exams/:exam_id/students/:student_id', fetchStudentResolvedGradeAppeals);
 router.get('/unresolved/exams/:exam_id/students/:student_id', fetchStudentUnresolvedGradeAppeals);
 router.get('/unresolved/exams/:exam_id', fetchExamUnresolvedGradeAppeals);
+router.get( '/id/:grade_appeal_id', fetchGradeAppealById);
+
 module.exports = router;

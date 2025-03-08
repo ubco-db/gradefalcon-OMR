@@ -21,6 +21,7 @@ import {
 } from "../../components/ui/drawer";
 import "../../css/App.css";
 import QuestionsTable from "../../components/QuestionsTable";
+import {ExamGridAppealView} from "../../components/ExamGridAppealView";
 
 const ExamDetails = () => {
   const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
@@ -452,6 +453,9 @@ const data = [
           </CardContent>
         </Card>
       </div>
+      <ExamGridAppealView
+        examId={exam_id}>
+      </ExamGridAppealView>
     </div>
   );
 };

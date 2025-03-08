@@ -1,6 +1,34 @@
 const pool = require("../utils/db");
 
 const {getCustomMarkingSchemes, fetchSolution} = require("./examController");
+const fetchGradeAppealById = async (req, res, next) => {
+    try {
+        const {grade_appeal_id: gradeAppealId} = req.params;
+        if (!gradeAppealId) {
+        return res.status(400).json({message: "Missing required fields"});
+        }
+
+        const result = await pool.query(
+            `SELECT grade_appeal_id, exam_id, student_id, appeal_details, reply_details, appeal_time, reply_time, name
+             FROM student_grade_appeals_view 
+             WHERE grade_appeal_id = $1`,
+            [gradeAppealId]
+        );
+
+        if (result.rows.length === 0) {
+        return res.status(404).json({message: "Grade appeal not found"});
+        }
+
+        res.status(200).json({
+        message: "Grade appeal fetched successfully",
+        data: result.rows[0]
+        });
+
+    } catch (error) {
+        console.error("Error fetching grade appeal by ID:", error);
+        next(error);
+    }
+}
 /**
  * student submit a grade appeal for a specific exam and student
  * @param req
@@ -68,7 +96,7 @@ const respondGradeAppeal = async (req, res, next) => {
       return res.status(404).json({message: "Grade appeal not found for the given exam"});
     }
 
-    const {exam_id: examId, student_id: studentId} = appealResult.rows[0];
+    const {exam_id: examId, student_id: studentId} = studentResult.rows[0];
 
     const chosenAnswersResult = await pool.query(`SELECT chosen_answers
                                                   FROM studentresults
@@ -93,7 +121,7 @@ const respondGradeAppeal = async (req, res, next) => {
 
     const solutionAnswersResult = await fetchAnswer(examId);
     // compute the new grade
-    const newGrade = getNewGrade(chosenAnswers, markingSchemes, solutionAnswersResult);
+    const newGrade = getNewGrade(resChosenAnswers, markingSchemes, solutionAnswersResult);
 
     // update the new grade and chosen answers
     await updateNewGradeAndChosenAnswers(examId, studentId, newGrade, resChosenAnswers);
@@ -112,8 +140,8 @@ const fetchStudentResolvedGradeAppeals = async (req, res, next) => {
     const {exam_id: examId, student_id: studentId} = req.params;
 
     const result = await pool.query(
-        `SELECT grade_appeal_id, exam_id, appeal_details, reply_details, reply_time
-         FROM grade_appeals
+        `SELECT grade_appeal_id, exam_id, appeal_details, reply_details, reply_time, name
+         FROM student_grade_appeals_view
          WHERE student_id = $1
            AND exam_id = $2
            AND reply_details IS NOT NULL`,
@@ -136,8 +164,8 @@ const fetchStudentUnresolvedGradeAppeals = async (req, res, next) => {
   try {
     const {student_id: studentId, exam_id: examId} = req.params;
     const result = await pool.query(
-        `SELECT grade_appeal_id, exam_id, appeal_details
-         FROM grade_appeals
+        `SELECT grade_appeal_id, exam_id, appeal_details, name
+         FROM student_grade_appeals_view
          WHERE student_id = $1
            AND exam_id = $2
            AND reply_details IS NULL`,
@@ -167,8 +195,8 @@ const fetchExamUnresolvedGradeAppeals = async (req, res, next) => {
     }
 
     const unresolvedAppeals = await pool.query(
-        `SELECT grade_appeal_id, student_id, appeal_details, appeal_time
-         FROM grade_appeals
+        `SELECT grade_appeal_id, student_id, appeal_details, appeal_time, name
+         FROM student_grade_appeals_view
          WHERE exam_id = $1
            AND (reply_details IS NULL OR reply_details = '[]')`,
         [examId]
@@ -213,7 +241,7 @@ const fetchExamUnresolvedGradeAppeals = async (req, res, next) => {
 }
     */
 
-const constructMarkingScheme = (originalMarkingScheme) => {
+const constructMarkingScheme = (originalMarkingSchemes) => {
 
 
   // TODO refactor getCustomMarkingSchemes to return a default marking scheme after refactoring of the examRoute.js is complete
@@ -226,7 +254,7 @@ const constructMarkingScheme = (originalMarkingScheme) => {
     },
   };
 
-  for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
+  for (const [sectionName, scheme] of Object.entries(originalMarkingSchemes)) {
     markingSchemes[sectionName] = {
       questions: scheme.questions,
       marking: scheme.marking,
@@ -281,6 +309,8 @@ const getNewGrade = (chosenAnswers, markingSchemes, solutionAnswers) => {
       acc[key] = answer[key];
       return acc;
     }, {});
+    console.log("ChosenAnserMap:", chosenAnswersMap);
+    console.log("solutionanswerMap",chosenAnswersMap);
 
     for (const question in solutionAnswersMap) {
       const correctAnswer = solutionAnswersMap[question];
@@ -301,7 +331,7 @@ const getNewGrade = (chosenAnswers, markingSchemes, solutionAnswers) => {
       } else if (studentAnswer === null || studentAnswer === "") {
         totalGrade += unmarked;
       } else {
-        totalGrade -= incorrect;
+        totalGrade += incorrect;
       }
     }
     return totalGrade;
@@ -334,11 +364,11 @@ const updateNewGradeAndChosenAnswers = async (exam_id, student_id, newGrade, cho
         `UPDATE studentresults
          SET grade           = $1,
              chosen_answers  = $2,
-             grade_changelog = array_append(grade_changelog, $3)
+             grade_changelog = array_append(COALESCE(grade_changelog, '{}'), $3)
          WHERE exam_id = $4
            AND student_id = $5`,
         [newGrade,
-          chosenAnswers,
+          JSON.stringify(chosenAnswers), // TODO
           `Grade updated to ${newGrade} based on grade appeal response`,
           exam_id,
           student_id]
@@ -352,16 +382,18 @@ const updateNewGradeAndChosenAnswers = async (exam_id, student_id, newGrade, cho
 const updateGradeAppeal = async (grade_appeal_id, reply_details) => {
   try {
     const replyTime = new Date();
+    const formattedReplyDetails =
+      typeof reply_details === "string"? reply_details: JSON.stringify(reply_details)
     const result = await pool.query(
         `UPDATE grade_appeals
          SET reply_details = $1,
              reply_time    = $2
-         WHERE grade_appeal_id = $3`,
-        [reply_details, replyTime, grade_appeal_id]
+         WHERE grade_appeal_id = $3
+        RETURNING *`, // return updated rownn
+        [formattedReplyDetails, replyTime, grade_appeal_id]
     )
   } catch (error) {
     console.error("Error updating grade appeal:", error);
-    next(error);
   }
 }
 
@@ -370,5 +402,6 @@ module.exports = {
   respondGradeAppeal,
   fetchStudentResolvedGradeAppeals,
   fetchStudentUnresolvedGradeAppeals,
-  fetchExamUnresolvedGradeAppeals
+  fetchExamUnresolvedGradeAppeals,
+  fetchGradeAppealById
 };

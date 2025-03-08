@@ -109,17 +109,29 @@ CREATE TABLE scannedExam(
     foreign key (exam_id) references exam(exam_id)
 );
 
-CREATE TABLE "grade_appeals"(
-    "grade_appeal_id" serial primary key,
-    "exam_id" int not null,
-    "student_id" text not null,
-    "appeal_details" JSONB,
-    "appeal_time" timestamp default now(),
-    "reply_details" JSONB,
-    "reply_time" timestamp,
+CREATE TABLE grade_appeals(
+    grade_appeal_id serial primary key,
+    exam_id int not null,
+    student_id text not null,
+    appeal_details JSONB,
+    appeal_time timestamp default now(),
+    reply_details JSONB,
+    reply_time timestamp,
     foreign key (exam_id) references exam(exam_id),
     foreign key (student_id) references student(student_id)
 );
+
+CREATE VIEW student_grade_appeals_view AS
+SELECT g.grade_appeal_id,
+       g.exam_id,
+       g.student_id,
+       g.appeal_details,
+       g.appeal_time,
+       g.reply_details,
+       g.reply_time,
+       s.name
+FROM grade_appeals g
+         JOIN student s ON g.student_id = s.student_id;
 
 
 -- ////////// Create ENUM type for report status: /////////////////
