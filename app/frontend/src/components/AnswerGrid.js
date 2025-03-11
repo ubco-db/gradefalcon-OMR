@@ -7,7 +7,7 @@ import useGradeAppealApi from "../api/useGradeAppealApi";
 export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, appealing=false, examId=null, studentId=null }) => {
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [confirmations, setConfirmations] = useState({});
-  const [ canSubmitAppeal, setCanSubmitAppeal ] = useState(false);
+  const [ noUnresolved, setNoUnresolved ] = useState(false);
   const { submitAppeal, hasUnresolvedAppeals } = useGradeAppealApi();
 
 
@@ -15,7 +15,7 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
     
     const fetchUnresolvedAppeals =  async () => {
       const hasUnresolved = await hasUnresolvedAppeals(examId, studentId);
-        setCanSubmitAppeal(!hasUnresolved);
+        setNoUnresolved(!hasUnresolved);
         console.log("Can submit appeal:", !hasUnresolved);
     }
     fetchUnresolvedAppeals();
@@ -26,7 +26,7 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
   
 
   const handleAnswerClick = (questionKey, option) => {
-    if (!appealing || !canSubmitAppeal ) return;
+    if (!appealing || !noUnresolved ) return;
     setSelectedAnswers(prev => {
       const newSelectedAnswers = { ...prev };
       if (newSelectedAnswers[questionKey]?.includes(option)) {
@@ -42,14 +42,14 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
   };
 
   const handleConfirmClick = (questionKey) => {
-    if (!appealing || !canSubmitAppeal) return;
+    if (!appealing || !noUnresolved) return;
     setConfirmations(prev => ({
       ...prev,
       [questionKey]: true
     }));
   };
   const handleUndoClick = (questionKey) => {
-    if (!appealing || !canSubmitAppeal ) return;
+    if (!appealing || !noUnresolved ) return;
     setSelectedAnswers(prev => {
       const newSelectedAnswers = { ...prev };
       delete newSelectedAnswers[questionKey];
@@ -66,7 +66,7 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
 
 
   const handleSubmit = async () => {
-    if (!appealing || !canSubmitAppeal ) return;
+    if (!appealing || !noUnresolved ) return;
     const modifiedAnswers = Object.keys(selectedAnswers)
         .filter(qKey => confirmations[qKey] && selectedAnswers[qKey][0] !== answers.student[qKey])
         .map(qKey => ({ [qKey]: selectedAnswers[qKey][0] }));
@@ -185,7 +185,8 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
         {appealing &&  (
              <ButtonContainer
                isAllSelectConfirmed={allSelectedConfirmed}
-                canSubmit={canSubmitAppeal}
+               selectedAnswers={selectedAnswers}
+                noUnresolved={noUnresolved}
                 handleSubmit={handleSubmit}
              >
              </ButtonContainer>
@@ -200,20 +201,17 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
 
 
 
-const ButtonContainer = ({isAllSelectConfirmed, canSubmit, handleSubmit}) => {
+const ButtonContainer = ({isAllSelectConfirmed, noUnresolved, handleSubmit, selectedAnswers}) => {
   let buttonText = "Submit";
   let buttonTitle = "Cannot submit appeal. You have unresolved appeals.";
-  const disabled = !(isAllSelectConfirmed && canSubmit);
+  const selectedAnswerLength = Object.entries(selectedAnswers).length;
+  const disabled = !(isAllSelectConfirmed && noUnresolved && ( selectedAnswerLength !==0));
   const disabledStyle = "mt-4 px-4 py-2 bg-gray-400 text-white font-bold rounded-lg w-full";
   const enabledStyle = "mt-4 px-4 py-2 bg-green-600 text-white font-bold rounded-lg w-full";
 
-  console.log("ButtonContainer", disabled? disabledStyle : enabledStyle);
-  console.log("Disabled", disabled);
-  console.log("isAllselectConfirmed", isAllSelectConfirmed);
-  console.log("cansubmit", canSubmit);
-
-  
-  if (canSubmit && !isAllSelectConfirmed) {
+  if (noUnresolved && (selectedAnswerLength ===0 )) {
+    buttonTitle = "Cannot submit, you have to select at least one answers";
+  } else if (noUnresolved && !isAllSelectConfirmed) {
     buttonTitle = "Cannot submit, you have to confirm all selections";
   }
   if (!disabled) {
