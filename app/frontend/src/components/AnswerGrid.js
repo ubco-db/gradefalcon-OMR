@@ -4,7 +4,7 @@ import React, {useCallback, useEffect, useMemo, useState} from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import useGradeAppealApi from "../api/useGradeAppealApi";
 
-export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, appealing=false, examId=null, studentId=null }) => {
+export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, appealing=false, examId=null, studentId=null, onSuccessAppealSubmit = null }) => {
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [confirmations, setConfirmations] = useState({});
   const [ noUnresolved, setNoUnresolved ] = useState(false);
@@ -71,7 +71,14 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
         .filter(qKey => confirmations[qKey] && selectedAnswers[qKey][0] !== answers.student[qKey])
         .map(qKey => ({ [qKey]: selectedAnswers[qKey][0] }));
 
-    const res = await submitAppeal(examId, studentId, modifiedAnswers);
+    try {
+      const res = await submitAppeal(examId, studentId, modifiedAnswers);
+      setSelectedAnswers({});
+      if (onSuccessAppealSubmit) { onSuccessAppealSubmit(true) };
+    } catch (error) {
+      console.log(error);
+      onSuccessAppealSubmit(false);
+    }
   };
 
   const formatAnswers = useCallback(() => {

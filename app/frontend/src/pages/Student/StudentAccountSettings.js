@@ -128,7 +128,6 @@ const StudentAccountSettings = () => {
           </Card>
         </main>
       </div>
-      <Toaster /> {/* Adding the Toaster component */}
     </>
   );
 };

@@ -796,7 +796,7 @@ router.post("/fetchStudentExam/:exam_id", checkJwt, checkPermissions(["read:exam
 router.post("/fetchSolution/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), fetchSolution);
 router.post('/fetchSolutionAnswers/:exam_id', checkJwt, checkPermissions(["read:exam_student"]), fetchSolutionAnswers);
 
-router.post("/changeGrade", checkJwt, checkPermissions(["update_grades"]), changeGrade);
+router.post("/changeGrade", checkJwt, checkPermissions(["update:grades"]), changeGrade);
 
 
 //test routes

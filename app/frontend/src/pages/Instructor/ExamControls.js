@@ -154,7 +154,6 @@ const ExamControls = () => {
           </div>
         </div>
       </main>
-      <Toaster />
     </>
   );
 };

@@ -2,11 +2,16 @@ import {useEffect, useState} from "react";
 import useGradeAppealApi from "../api/useGradeAppealApi";
 import {Card, CardContent, CardHeader, CardTitle} from "./ui/card";
 import {ScrollArea} from "./ui/scroll-area";
+import { useToast } from "./ui/use-toast";
+import { useNavigate } from "react-router-dom";
+
 
 export const GradeAppealGrid = ({gradeAppealId, appealDetails}) => {
   const [decisions, setDecisions] = useState({});
   const [canSubmitReply, setCanSubmitReply] = useState(false);
   const {respondGradeAppeal} = useGradeAppealApi();
+  const { toast } = useToast();
+  const navigate = useNavigate();
 
   const confirmString = "confirm";
   const declineString = "decline"
@@ -34,20 +39,33 @@ export const GradeAppealGrid = ({gradeAppealId, appealDetails}) => {
   };
 
   const handleSubmit = async () => {
-    const replyDetails = appealDetails
-      .filter(item => {
-        const key = Object.keys(item)[0];
-        return decisions[key] === "confirm";
-      })
+    try {
+      const replyDetails = appealDetails
+        .filter(item => {
+          const key = Object.keys(item)[0];
+          return decisions[key] === "confirm";
+        })
 
-    if (replyDetails.length > 0) {
-      console.log("replyDetails: ", replyDetails);
       const result = await respondGradeAppeal(gradeAppealId, replyDetails);
       if (result) {
         // Handle success
         setDecisions({});
         setCanSubmitReply(false);
+        toast({
+          title: "Success",
+          description: "Your response has been successfully submitted.",
+          duration: 1000
+        })
+        setTimeout(() => {
+          navigate(-1)
+        }, 2000)
       }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "An error occurred while submitting your response.",
+        variant: "destructive"
+      })
     }
   };
 
@@ -58,6 +76,14 @@ export const GradeAppealGrid = ({gradeAppealId, appealDetails}) => {
 
 
   return (<Card className="bg-white border rounded-lg w-full">
+            <button onClick={() => {
+        toast({
+        title: "Success",
+        description: "Password reset email sent.",
+          duration: 1000
+          
+      });
+      }}>Test Button</button>
     <CardHeader className="flex flex-row items-center bg-muted/50 px-6 py-4">
       <CardTitle>Grade Appeal Review</CardTitle>
     </CardHeader>

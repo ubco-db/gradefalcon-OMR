@@ -77,6 +77,7 @@ const SubmitReport = () => {
     fetchExamsAndReports();
   }, [getAccessTokenSilently]);
 
+  // exam detaisl from selection
   const handleExamChange = async (value) => {
     try {
       const token = await getAccessTokenSilently();
@@ -162,63 +163,6 @@ const SubmitReport = () => {
     }
   };
 
-  const handleReportSubmit = async (event) => {
-    event.preventDefault();
-
-    if (!selectedExam) {
-      setError("Please select an exam.");
-      setShowAlert(true);
-      return;
-    }
-
-    if (!reportText.trim()) {
-      setError("Please enter a message.");
-      setShowAlert(true);
-      return;
-    }
-
-    // Check if there's a pending report for this exam
-    const pendingReport = studentReports.find(
-      (report) => report.exam_id === selectedExam.exam_id && report.status === "Pending"
-    );
-
-    if (pendingReport) {
-      setError("You already have a pending report for this exam.");
-      setShowAlert(true);
-      return;
-    }
-
-    try {
-      const token = await getAccessTokenSilently();
-      const response = await fetch("/api/reports/submit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          exam_id: selectedExam.exam_id,
-          report_text: reportText,
-        }),
-      });
-
-      if (response.ok) {
-        setIsSubmitted(true);
-        toast({
-          title: "Success",
-          description: "Report submitted successfully.",
-        });
-        setTimeout(() => {
-          navigate("/studentReportsDashboard");
-        }, 1000);
-      } else {
-        console.error("Failed to submit report");
-      }
-    } catch (error) {
-      console.error("Error submitting report:", error);
-    }
-  };
-
   return (
     <>
       <main className="flex flex-col gap-4 p-2">
@@ -290,7 +234,23 @@ const SubmitReport = () => {
                         studentAnswers={studentAnswers}
                         appealing={true}
                         examId={selectedExam.exam_id}
-                        studentId={selectedExam.student_id}/>
+                        studentId={selectedExam.student_id}
+                        onSuccessAppealSubmit={(ifSuccess) => {
+                          setSelectedExam();
+                          ifSuccess? (() => {toast({
+                            // TODO longsai: use a unified notification service with toast
+                            // along with the predefined templates such as info, warning, error with styles and durations
+                            title: "Submission successs",
+                            description: "Successful submitted the grade appeal",
+                            duration: 1000,
+                          })})() : (() => {
+                            toast({
+                              title: "Submission error",
+                              description: "Faied to submitted the grade appeal",
+                              variant:"destructive"
+                            })
+                          })()
+                          }}/>
                   </div>
                 )}
 
@@ -337,7 +297,6 @@ const SubmitReport = () => {
           </div>
         </div>
       </main>
-      <Toaster /> {/* Adding the Toaster component */}
     </>
   );
 };

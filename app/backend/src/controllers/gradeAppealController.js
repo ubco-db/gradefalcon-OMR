@@ -122,9 +122,13 @@ const respondGradeAppeal = async (req, res, next) => {
     const solutionAnswersResult = await fetchAnswer(examId);
     // compute the new grade
     const newGrade = getNewGrade(resChosenAnswers, markingSchemes, solutionAnswersResult);
-
     // update the new grade and chosen answers
-    await updateNewGradeAndChosenAnswers(examId, studentId, newGrade, resChosenAnswers);
+    const changelogMessageFunc = replyDetails.length > 0
+      ? (newGrade) => `Grade updated to ${newGrade} based on grade appeal response` 
+      : (newGrade) => `This appeals is declined`;
+
+    
+    await updateNewGradeAndChosenAnswers(examId, studentId, newGrade, resChosenAnswers, changelogMessageFunc);
     await updateGradeAppeal(gradeAppealId, replyDetails);
     res.status(200).json({message: "Grade appeal response confirmed successfully"});
 
@@ -168,7 +172,7 @@ const fetchStudentUnresolvedGradeAppeals = async (req, res, next) => {
          FROM student_grade_appeals_view
          WHERE student_id = $1
            AND exam_id = $2
-           AND reply_details IS NULL`,
+           AND reply_time IS NULL`,
         [studentId, examId]
     );
     if (result.rows.length === 0) {
@@ -198,7 +202,7 @@ const fetchExamUnresolvedGradeAppeals = async (req, res, next) => {
         `SELECT grade_appeal_id, student_id, appeal_details, appeal_time, name
          FROM student_grade_appeals_view
          WHERE exam_id = $1
-           AND (reply_details IS NULL OR reply_details = '[]')`,
+           AND reply_time IS NULL`,
         [examId]
     );
 
@@ -309,8 +313,6 @@ const getNewGrade = (chosenAnswers, markingSchemes, solutionAnswers) => {
       acc[key] = answer[key];
       return acc;
     }, {});
-    console.log("ChosenAnserMap:", chosenAnswersMap);
-    console.log("solutionanswerMap",chosenAnswersMap);
 
     for (const question in solutionAnswersMap) {
       const correctAnswer = solutionAnswersMap[question];
@@ -357,7 +359,7 @@ const fetchAnswer = async (examId) => {
 }
 
 // update grade, chosen_answers, grade_changelog in studentresults table
-const updateNewGradeAndChosenAnswers = async (exam_id, student_id, newGrade, chosenAnswers) => {
+const updateNewGradeAndChosenAnswers = async (exam_id, student_id, newGrade, chosenAnswers, changelogMessageFunc) => {
   // studentresults table
   try {
     const result = await pool.query(
@@ -369,7 +371,7 @@ const updateNewGradeAndChosenAnswers = async (exam_id, student_id, newGrade, cho
            AND student_id = $5`,
         [newGrade,
           JSON.stringify(chosenAnswers), // TODO
-          `Grade updated to ${newGrade} based on grade appeal response`,
+          changelogMessageFunc(newGrade),
           exam_id,
           student_id]
     )

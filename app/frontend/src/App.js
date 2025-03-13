@@ -12,6 +12,7 @@ import Unauthorized from './pages/Unauthorized';
 import Home from './pages/Home';
 import OMRProcessing from './components/OMRProcessing';
 import OMRProcessingUpload from './components/OMRProcessingUpload';
+import { Toaster } from './components/ui/toaster';
 
 // Import Instructor pages
 import Dashboard from './pages/Instructor/Dashboard';
@@ -49,6 +50,7 @@ function App() {
   return (
     <Router>
       <div className="App">
+        <Toaster />
         <Routes>
           <Route path="/Home" element={<Home />} />
           <Route path="/unauthorized" element={<Unauthorized />} />
