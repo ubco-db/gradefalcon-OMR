@@ -38,20 +38,46 @@ const fetchGradeAppealById = async (req, res, next) => {
  */
 const submitGradeAppeal = async (req, res, next) => {
   try {
-    const {exam_id, student_id, appeal_details} = req.body;
-    if (!exam_id || !student_id || !appeal_details) {
+    const {exam_id: examId, student_id: studentId, appeal_details: appealDetails} = req.body;
+    if (!examId || !studentId || !appealDetails) {
       return res.status(400).json({message: "Missing required fields"});
     }
 
-    if (appeal_details.length === 0) {
+    if (appealDetails.length === 0) {
       return res.status(400).json({message: "No appeal details provided"});
+    }
+
+
+    // Fetch the current number of appeals for the student for the specific exam
+    const currentAppeals = await pool.query(
+        `SELECT COUNT(*) AS appeal_count
+         FROM grade_appeals
+         WHERE exam_id = $1 AND student_id = $2`,
+        [examId, studentId]
+    );
+
+    const appealCount = parseInt(currentAppeals.rows[0].appeal_count, 10);
+
+    const examDetails = await pool.query(
+        `SELECT exam_max_appeals
+        FROM exam
+        WHERE exam_id = $1`,
+    [examId]
+    );
+
+    const examMaxAppeals = examDetails.rows[0].exam_max_appeals;
+
+
+    // Check if the number of appeals exceeds the limit
+    if (appealCount >= examMaxAppeals) {
+      return res.status(403).json({ message: "Appeal limit exceeded for this exam" });
     }
 
     // Validate appeal_details format,
     // array like [{"q1": "A"}, {"q2": "B"}]
     if (
-        !Array.isArray(appeal_details) ||
-        !appeal_details.every(item => {
+        !Array.isArray(appealDetails) ||
+        !appealDetails.every(item => {
           const keys = Object.keys(item);
           return (
               keys.length === 1 &&                         // Must have exactly one key
@@ -67,7 +93,7 @@ const submitGradeAppeal = async (req, res, next) => {
 
     const result = await pool.query(
         "INSERT INTO grade_appeals (exam_id, student_id, appeal_details) VALUES ($1, $2, $3) RETURNING grade_appeal_id",
-        [exam_id, student_id, JSON.stringify(appeal_details)]
+        [examId, studentId, JSON.stringify(appealDetails)]
     )
     res.status(200).json({message: "Grade appeal submitted successfully"});
 

@@ -189,11 +189,11 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
         </ScrollArea>
       </CardContent>
       <CardContent>
-        {appealing &&  (
+        // The submit button will only be enable no unresolved
+        {appealing && noUnresolved && (
              <ButtonContainer
                isAllSelectConfirmed={allSelectedConfirmed}
                selectedAnswers={selectedAnswers}
-                noUnresolved={noUnresolved}
                 handleSubmit={handleSubmit}
              >
              </ButtonContainer>
@@ -208,17 +208,17 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
 
 
 
-const ButtonContainer = ({isAllSelectConfirmed, noUnresolved, handleSubmit, selectedAnswers}) => {
+const ButtonContainer = ({isAllSelectConfirmed, handleSubmit, selectedAnswers}) => {
   let buttonText = "Submit";
   let buttonTitle = "Cannot submit appeal. You have unresolved appeals.";
   const selectedAnswerLength = Object.entries(selectedAnswers).length;
-  const disabled = !(isAllSelectConfirmed && noUnresolved && ( selectedAnswerLength !==0));
+  const disabled = !(isAllSelectConfirmed &&  ( selectedAnswerLength !==0));
   const disabledStyle = "mt-4 px-4 py-2 bg-gray-400 text-white font-bold rounded-lg w-full";
   const enabledStyle = "mt-4 px-4 py-2 bg-green-600 text-white font-bold rounded-lg w-full";
 
-  if (noUnresolved && (selectedAnswerLength ===0 )) {
+  if (selectedAnswerLength ===0 ) {
     buttonTitle = "Cannot submit, you have to select at least one answers";
-  } else if (noUnresolved && !isAllSelectConfirmed) {
+  } else if (!isAllSelectConfirmed) {
     buttonTitle = "Cannot submit, you have to confirm all selections";
   }
   if (!disabled) {
