@@ -12,18 +12,17 @@ const {
   getExamQuestionDetails,
   saveResults,
   ensureDirectoryExistence,
-  resetOMR,
   getCustomMarkingSchemes,
   generateCustomBubbleSheet,
   getExamDetails,
   getStudentExams,
-  deleteAllFilesInDir,
   getStudentAttempt,
   fetchStudentExam,
   fetchSolution,
   changeGrade,
   getGradeChangeLog,
   deleteMyExam,
+  getExamQuestionDetailsById,
 } = require("../controllers/examController");
 const { createUploadMiddleware } = require("../middleware/uploadMiddleware");
 const { checkJwt, checkPermissions } = require("../auth0"); // Importing from auth.js
@@ -37,6 +36,8 @@ const { formatWithOptions } = require("util");
 const e = require("express");
 const config = require('../config');
 const pool = require('../utils/db');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
 
 const router = express.Router();
 const combinedUpload = multer().fields([
@@ -98,8 +99,14 @@ router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
 
 router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
   try {
+    const { exam_id } = req.body;
+
+    if (!exam_id) {
+      return res.status(400).json({ error: "Missing exam_id" });
+    }
+
     // Fetch student scores directly from the OMR service
-    const response = await fetch("http://flaskomr:5000/student_scores", {
+    const response = await fetch(`http://flaskomr:5000/student_scores?examId=${exam_id}`, {
       method: "GET",
       headers: {
         "Content-Type": "application/json"
@@ -112,15 +119,39 @@ router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), async
     
     const studentScores = await response.json();
     
-    // Map each result to include the student name
-    const resultsWithNames = await Promise.all(
+    // Fetch image UUIDs for each student from the database
+    const resultsWithNamesAndImages = await Promise.all(
       studentScores.map(async (result) => {
         const studentName = await getStudentNameById(result.StudentID);
+        
+        // Try to fetch image UUIDs from the database
+        try {
+          const query = `
+            SELECT image_uuids
+            FROM studentResults
+            WHERE exam_id = $1 AND student_id = $2
+          `;
+          
+          const dbResult = await pool.query(query, [exam_id, result.StudentID]);
+          
+          if (dbResult.rows.length > 0 && dbResult.rows[0].image_uuids) {
+            return { 
+              StudentName: studentName, 
+              ...result, 
+              image_uuids: dbResult.rows[0].image_uuids 
+            };
+          }
+        } catch (dbError) {
+          console.error(`Error fetching image UUIDs for student ${result.StudentID}:`, dbError);
+          // Continue without image UUIDs
+        }
+        
+        // Return result without image UUIDs if not found
         return { StudentName: studentName, ...result };
       })
     );
     
-    res.json(resultsWithNames);
+    res.json(resultsWithNamesAndImages);
   } catch (error) {
     console.error("Error fetching student scores:", error);
     res.status(500).send("Error fetching student scores");
@@ -139,47 +170,54 @@ router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["
     }
 
     const { path: tempFilePath } = req.file;
-    const destinationDir = "/code/omr/inputs";
+    const exam_id = req.body.exam_id; 
+
+    if (!exam_id) {
+      fs.unlinkSync(tempFilePath); 
+      return res.status(400).send("Missing exam_id parameter");
+    }
 
     try {
-      fs.copyFileSync(tempFilePath, path.join(destinationDir, "exam.pdf"));
-      console.log(examType, numQuestions);
-      if (examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq") {
-        const response = await fetch("http://flaskomr:5000/split_pdf", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            doubleSide: true
-          })
-        });
-        
-        if (!response.ok) {
-          throw new Error("PDF split failed");
-        }
-      } 
-      else {
-        const response = await fetch("http://flaskomr:5000/split_pdf", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            doubleSide: false
-          })
-        });
+      // create FormData object, for sending file
+      const formData = new FormData();
+      formData.append('pdf_file', fs.createReadStream(tempFilePath));
+      formData.append('exam_id', exam_id);
+      
+      // set doubleSide parameter based on exam type
+      const doubleSide = examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq";
+      formData.append('doubleSide', doubleSide.toString());
 
-        if (!response.ok) {
-          throw new Error("PDF split failed");
-        }
+      // send request to Flask OMR service split_pdf endpoint
+      const response = await fetch("http://flaskomr:5000/split_pdf", {
+        method: "POST",
+        body: formData
+      });
+      
+      // delete temporary file
+      fs.unlinkSync(tempFilePath);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`PDF split failed: ${errorData.error || 'Unknown error'}`);
       }
-      fs.unlinkSync(tempFilePath); // Delete the temporary file
-      res.json({ message: "Exam uploaded successfully" });
+      
+      const responseData = await response.json();
+      res.json({ 
+        message: "Exam uploaded successfully", 
+        details: responseData 
+      });
       
     } catch (error) {
       console.error("Error processing PDF file:", error);
-      res.status(500).send("Error processing PDF file");
+      // ensure temporary file is deleted
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch (unlinkError) {
+        console.error("Error deleting temporary file:", unlinkError);
+      }
+      res.status(500).send(`Error processing PDF file: ${error.message}`);
     }
   });
 });
@@ -199,9 +237,6 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
       .on("end", () => {
         // Once file reading is done, send the entire results array as a response
         res.json({ csv_file: results });
-
-        // Delete all files in the input and output directories
-        resetOMR();
       })
 
       .on("error", (error) => {
@@ -227,9 +262,6 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
             const combinedResults = [{ ...resultsPage1[0], ...resultsPage2[0] }];
             // Send the combined results as a response
             res.json({ csv_file: combinedResults });
-
-            // Delete all files in the input and output directories
-            resetOMR();
           })
           .on("error", (error) => {
             console.error("Error reading CSV file from page 2:", error);
@@ -244,66 +276,8 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
 });
 
 // Save student exams to the database
-router.post("/saveStudentExams", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
-  // Now we save the image UUIDs instead of copying files
-  // data structure is now:
-  // Object: {
-  //   Score, StudentID, StudentName, 
-  //   image_uuids: {
-  //     page1: { original: "uuid1", results: "uuid2" },
-  //     page2: { original: "uuid3", results: "uuid4" }
-  //   }
-  // }
-
-  const exam_id = req.body.exam_id;
-  const studentData = req.body.data;
-  
-  try {
-    // Save each student's data with image UUIDs to PostgreSQL
-    for (const student of studentData) {
-      const student_id = student.StudentID;
-      const chosen_answers = {};
-      
-      // Extract question answers
-      Object.keys(student).forEach(key => {
-        if (key.startsWith('q') && student[key].trim() !== '') {
-          chosen_answers[key] = student[key];
-        }
-      });
-      
-      // Store the results in the database
-      try {
-        const query = `
-          INSERT INTO studentResults (student_id, exam_id, chosen_answers, grade, image_uuids)
-          VALUES ($1, $2, $3, $4, $5)
-          ON CONFLICT (student_id, exam_id) 
-          DO UPDATE SET 
-            chosen_answers = $3, 
-            grade = $4, 
-            image_uuids = $5
-        `;
-        
-        await pool.query(query, [
-          student_id, 
-          exam_id, 
-          JSON.stringify(chosen_answers), 
-          parseInt(student.Score, 10), 
-          JSON.stringify(student.image_uuids || {})
-        ]);
-        
-        console.log(`Student ${student_id} exam data saved successfully`);
-      } catch (dbError) {
-        console.error(`Error saving student ${student_id} data to database:`, dbError);
-        throw dbError;
-      }
-    }
-    
-    res.send({ message: "Student exam data saved successfully" });
-  } catch (error) {
-    console.error("Error saving student exam data:", error);
-    res.status(500).send("Error saving student exam data");
-  }
-});
+// Removed saveStudentExams route since it's no longer being used
+// All functionality has been consolidated into the saveResults endpoint
 
 // Save the exam key uploaded by the user
 router.post("/saveExamKey/:examType", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
@@ -515,7 +489,7 @@ router.post("/GenerateEvaluation", checkJwt, checkPermissions(["create:evaluatio
 
 function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
   return {
-    source_type: "custom",
+    source_type: "local",
     options: {
       questions_in_order: Array.from({ length: questions.length }, (_, i) => `q${i + questionStartIndex}`),
       answers_in_order: questions,
@@ -560,7 +534,13 @@ function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
 router.post("/callOMR", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   console.log("callOMR");
   try {
-    const response = await fetch("http://flaskomr:5000/process", {
+    // get examId from the request body
+    const { examId } = req.body;
+    if (!examId) {
+      return res.status(400).json({ error: "Missing examId parameter" });
+    }
+    
+    const response = await fetch(`http://flaskomr:5000/process/${examId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -661,6 +641,117 @@ router.post("/changeGrade", checkJwt, checkPermissions(["update_grades"]), chang
 router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   console.log("test called");
   res.send(JSON.stringify("Test route called successfully"));
+});
+
+// Get template JSON files for a specific exam
+router.get("/getTemplate/:examId", async function (req, res) {
+  try {
+    const examId = req.params.examId;
+    if (!examId) {
+      return res.status(400).json({ error: "Missing exam ID" });
+    }
+
+    // Query the database to get the template files
+    const query = "SELECT template_file FROM exam WHERE exam_id = $1";
+    const result = await pool.query(query, [examId]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Exam not found" });
+    }
+
+    const templateFiles = result.rows[0].template_file;
+    
+    if (!templateFiles || templateFiles.length === 0) {
+      return res.status(404).json({ error: "No template files found for this exam" });
+    }
+
+    // Create a combined template with page_1 and page_2 keys
+    const combinedTemplate = {};
+    
+    // Process template files
+    if (templateFiles.length === 1) {
+      // Single page template
+      combinedTemplate.page_1 = templateFiles[0];
+    } else if (templateFiles.length === 2) {
+      // Double page template
+      combinedTemplate.page_1 = templateFiles[0];
+      combinedTemplate.page_2 = templateFiles[1];
+    } else {
+      return res.status(500).json({ error: "Unexpected number of template files" });
+    }
+
+    return res.json(combinedTemplate);
+  } catch (error) {
+    console.error("Error fetching template files:", error);
+    return res.status(500).json({ error: "Failed to fetch template files" });
+  }
+});
+
+// new evaluation json route
+router.get("/getEvaluationJson/:exam_id", checkJwt, checkPermissions(["read:exam"]), async function (req, res) {
+  const exam_id = parseInt(req.params.exam_id, 10);
+  
+  if (isNaN(exam_id)) {
+    return res.status(400).json({ error: "Invalid exam_id" });
+  }
+
+  try {
+    // get exam question details by exam id
+    const examDetails = await getExamQuestionDetailsById(exam_id);
+    const { examType, totalQuestions } = examDetails;
+    
+    // get answer key and marking schemes
+    const answerKey = await getAnswerKeyForExam(exam_id);
+    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
+
+    const markingSchemes = {
+      DEFAULT: {
+        correct: "1",
+        incorrect: "0",
+        unmarked: "0",
+      },
+    };
+
+    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
+      markingSchemes[sectionName] = {
+        questions: scheme.questions,
+        marking: scheme.marking,
+      };
+    }
+
+    let response = {};
+
+    if (examType === "200mcq" || (examType === "custom" && totalQuestions > 100)) {
+      const firstHalfQuestions = answerKey.slice(0, 100);
+      const secondHalfQuestions = answerKey.slice(100);
+
+      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
+      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
+
+      response = {
+        page_1: evaluationJsonPage1,
+        page_2: evaluationJsonPage2
+      };
+    } else if (examType === "100mcq") {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } 
+    else if (examType === "custom" && totalQuestions <= 100) {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } else {
+      return res.status(400).json({ error: "Invalid exam type." });
+    }
+
+    return res.json(response);
+  } catch (error) {
+    console.error("Error in /getEvaluationJson:", error);
+    return res.status(500).json({ error: "Error generating evaluation JSON" });
+  }
 });
 
 module.exports = router;

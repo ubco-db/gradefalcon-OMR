@@ -36,6 +36,8 @@ const ExamDetails = () => {
     const fetchExamData = async () => {
       try {
         const token = await getAccessTokenSilently();
+        
+        // Fetch exam details
         const response = await fetch(`/api/exam/getExamDetails/${exam_id}`, {
           method: "GET",
           headers: {
@@ -47,12 +49,65 @@ const ExamDetails = () => {
 
         if (response.ok) {
           const data = await response.json();
-          console.log("data", data);
+          console.log("Exam details:", data);
           setExamData(data);
+          
+          // Now get the image UUIDs for each student
+          if (data.studentResults && data.studentResults.length > 0) {
+            try {
+              // Fetch image UUIDs for each student
+              const studentImagePromises = data.studentResults.map(async (student) => {
+                const imageResponse = await fetch(`/api/images/exam/${exam_id}/student/${student.student_id}`, {
+                  method: "GET",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`,
+                  },
+                });
+                
+                if (imageResponse.ok) {
+                  const imageData = await imageResponse.json();
+                  return {
+                    student_id: student.student_id,
+                    image_uuids: imageData.image_uuids || null
+                  };
+                }
+                return { student_id: student.student_id, image_uuids: null };
+              });
+              
+              // Wait for all image UUID requests to complete
+              const studentImages = await Promise.all(studentImagePromises);
+              
+              // Create an image UUID lookup object
+              const imageUuidsMap = {};
+              studentImages.forEach(item => {
+                if (item.image_uuids) {
+                  imageUuidsMap[item.student_id] = item.image_uuids;
+                }
+              });
+              
+              // Add image UUIDs to examData.studentResults
+              const updatedStudentResults = data.studentResults.map(student => {
+                return {
+                  ...student,
+                  image_uuids: imageUuidsMap[student.student_id] || null
+                };
+              });
+              
+              // Update the examData with the enhanced student results
+              setExamData(prev => ({
+                ...prev,
+                studentResults: updatedStudentResults
+              }));
+            } catch (imageError) {
+              console.error("Error fetching student image UUIDs:", imageError);
+            }
+          }
         } else {
           setError("Failed to fetch exam data");
         }
 
+        // Fetch answer key
         const answersResponse = await fetch(`/api/exam/fetchSolution/${exam_id}`, {
           method: "POST",
           headers: {
@@ -65,7 +120,7 @@ const ExamDetails = () => {
         if (answersResponse.ok) {
           const data = await answersResponse.json();
           setAnswers(data);
-          console.log("answers", data);
+          console.log("Answer key:", data);
         }
       } catch (error) {
         setError("Error fetching exam data");
@@ -380,7 +435,7 @@ const data = [
                           <TooltipTrigger asChild>
                             <TableRow
                               onClick={() => {
-                                navigate(`/ViewExam`, {
+                                navigate(`/instructor/view-exam`, {
                                   state: {
                                     student_id: result.student_id,
                                     exam_id: examData.exam_id,
@@ -390,6 +445,7 @@ const data = [
                                     chosen_answers: result.chosen_answers,
                                     answers: examData.answers,
                                     total_questions: examData.total_questions,
+                                    image_uuids: result.image_uuids,
                                   },
                                 });
                               }}

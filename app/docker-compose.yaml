@@ -69,7 +69,7 @@ services:
 
   flaskomr:
     build:
-      context: ./omr # Use the omr directory as the build context
+      context: omr # Use the omr directory as the build context
     environment:
       - FLASK_ENV=development
     ports:

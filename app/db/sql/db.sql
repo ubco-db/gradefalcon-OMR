@@ -83,7 +83,8 @@ CREATE TABLE studentResults(
     grade_changelog text[],
     image_uuids JSONB DEFAULT '{}', -- Store UUIDs in format {page1: {original: uuid, results: uuid}, page2: {original: uuid, results: uuid}}
     foreign key (exam_id) references exam(exam_id),
-    foreign key (student_id) references student(student_id)
+    foreign key (student_id) references student(student_id),
+    UNIQUE (student_id, exam_id) -- Add unique constraint for UPSERT operations
 );
 
 -- Trigger to copy chosen_answers to updated_chosen_answers on first insert

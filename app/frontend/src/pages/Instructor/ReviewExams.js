@@ -37,13 +37,13 @@ const fetchStudentScores = async () => {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ examType, numQuestions }), // Send examType and numQuestions in the request body
+    body: JSON.stringify({ examType, numQuestions, exam_id }), // Send examType, numQuestions and exam_id in the request body
   });
   if (!response.ok) {
     throw new Error("Network response was not ok");
   }
   const data = await response.json();
-  console.log("data", data);
+  console.log("Student scores data with image UUIDs:", data);
   setStudentScores(data);
 };
 
@@ -101,19 +101,16 @@ const fetchStudentScores = async () => {
     fetchData();
   }, [getAccessTokenSilently, exam_id, examType, numQuestions]);
 
-  const handleViewClick = (studentId, front_page, back_page, student_name, grade) => {
-    navigate("/ViewExam", {
+  const handleViewClick = (studentId, student_name, grade, image_uuids) => {
+    navigate("/instructor/view-exam", {
       state: {
         student_id: studentId,
         exam_id: exam_id,
-        front_page: `../../omr/outputs/page_1/CheckedOMRs/colored/${front_page}`,
-        back_page: `../../omr/outputs/page_2/CheckedOMRs/colored/${back_page}`,
-        original_front_page: `../../omr/inputs/page_1/${front_page}`,
-        original_back_page: `../../omr/inputs/page_2/${back_page}`,
         student_name: student_name,
         grade: grade,
         total_marks: totalMarks,
         reviewExams: true,
+        image_uuids: image_uuids, // Pass the image UUIDs to ViewExam.js
       },
     });
   };
@@ -125,43 +122,36 @@ const fetchStudentScores = async () => {
     );
   };
 
-  const saveStudentExams = async (studentData) => {
-    try {
-      const token = await getAccessTokenSilently();
-      const response = await fetch("/api/exam/saveStudentExams", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ exam_id: exam_id, data: studentData, examType, numQuestions }),
-      });
-      if (!response.ok) {
-        throw new Error("saveExams Network response was not ok");
-      }
-      const data = await response.json();
-      console.log("saveStudentExams:", data);
-    } catch (error) {
-      console.error("Error saving student exams:", error);
-    }
-  };
-
   const saveResults = async () => {
     try {
-      saveStudentExams(studentScores);
-
+      // No need to call saveStudentExams here as we'll save all data in one request
       const token = await getAccessTokenSilently();
+      
+      // Ensure student scores have the right structure
+      const formattedScores = studentScores.map(student => ({
+        ...student,
+        // Ensure Score is a string for consistency
+        Score: student.Score?.toString() || "0"
+      }));
+
       const response = await fetch("/api/exam/saveResults", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ studentScores, exam_id }),
+        body: JSON.stringify({ 
+          studentScores: formattedScores, 
+          exam_id,
+          examType,
+          numQuestions
+        }),
       });
+      
       if (!response.ok) {
         throw new Error("save results Network response was not ok");
       }
+      
       const data = await response.json();
       toast({
         title: "Results saved! Redirecting...",
@@ -223,7 +213,7 @@ const fetchStudentScores = async () => {
                         variant="ghost"
                         className="flex items-center justify-center hover:text-primary"
                         onClick={() =>
-                          handleViewClick(student.StudentID, student.front_page, student.back_page, student.StudentName, student.Score)
+                          handleViewClick(student.StudentID, student.StudentName, student.Score, student.image_uuids)
                         }
                       >
                         <EyeIcon className="h-6 w-6" />

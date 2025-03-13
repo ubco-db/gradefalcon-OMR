@@ -32,6 +32,7 @@ const NewExam = () => {
   const [currentTab, setCurrentTab] = useState("details"); // Track current tab
   const [numQuestions, setNumQuestions] = useState(100); // Default to 100 MCQs
   const [numOptions, setNumOptions] = useState(5); // Default to 5 options
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {

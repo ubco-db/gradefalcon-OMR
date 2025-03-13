@@ -1,0 +1,4 @@
+[submodule "app/omr/OMRChecker"]
+	path = app/omr/OMRChecker
+	url = https://github.com/ubco-db/UBCO-OMRChecker.git
+	branch = dev

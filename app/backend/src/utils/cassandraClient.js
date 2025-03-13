@@ -17,14 +17,24 @@ const client = new Client({
   }
 });
 
+// Flag to track connection status
+let isConnected = false;
+
 // Connect to Cassandra
 const connect = async () => {
+  // If already connected, just return
+  if (isConnected) {
+    return true;
+  }
+  
   try {
     await client.connect();
     console.log('Connected to Cassandra');
+    isConnected = true;
     return true;
   } catch (error) {
     console.error('Failed to connect to Cassandra:', error);
+    isConnected = false;
     return false;
   }
 };
@@ -61,9 +71,14 @@ const deleteImage = async (uuid) => {
 
 // Close Cassandra connection
 const disconnect = async () => {
+  if (!isConnected) {
+    return true;
+  }
+  
   try {
     await client.shutdown();
     console.log('Disconnected from Cassandra');
+    isConnected = false;
     return true;
   } catch (error) {
     console.error('Error disconnecting from Cassandra:', error);

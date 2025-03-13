@@ -116,22 +116,6 @@ const UploadExam = () => {
           },
           body: JSON.stringify({ examType, exam_id, numQuestions }), // Pass numQuestions
         }),
-        fetch("/api/exam/copyTemplate", {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            Authorization: `Bearer ${token}`, // Include the token in the request
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            examType,
-            keyOrExam: "exam",
-            numQuestions,
-            examTitle,
-            courseId,
-            classID: classId,
-          }), // Pass numQuestions
-        }),
       ]);
 
       const results = await Promise.all(
@@ -154,11 +138,10 @@ const UploadExam = () => {
         })
       );
 
-      const [dataUploadExam, dataGenerateEvaluation, dataCopyTemplate] = results;
+      const [dataUploadExam, dataGenerateEvaluation] = results;
 
       console.log("Data from UploadExam:", dataUploadExam);
       console.log("Data from GenerateEvaluation:", dataGenerateEvaluation);
-      console.log("Data from copyTemplate:", dataCopyTemplate);
 
       navigate("/OMRProcessingUpload", {
         state: { exam_id, numQuestions, examType },

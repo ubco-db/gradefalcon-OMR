@@ -1,6 +1,6 @@
 /**
  * Controller for handling image operations
- * Only supports retrieval and deletion operations
+ * Supports retrieval, deletion, and individual image fetch operations
  */
 
 const cassandraClient = require('../utils/cassandraClient');
@@ -37,9 +37,8 @@ const fetchImageByUuid = async (uuid) => {
   } catch (error) {
     console.error('Error getting image:', error);
     throw error;
-  } finally {
-    await cassandraClient.disconnect();
   }
+  // Removed disconnect to prevent "Connecting after shutdown" errors
 };
 
 /**
@@ -175,12 +174,40 @@ const deleteImage = async (req, res) => {
   } catch (error) {
     console.error('Error deleting image:', error);
     res.status(500).json({ message: 'Failed to delete image' });
-  } finally {
-    await cassandraClient.disconnect();
+  }
+  // Removed disconnect to prevent "Connecting after shutdown" errors
+};
+
+/**
+ * Get a single image by UUID
+ * This endpoint is exposed via API for direct image fetching
+ */
+const getSingleImage = async (req, res) => {
+  const { uuid } = req.params;
+  
+  if (!uuid) {
+    return res.status(400).json({ message: 'Image UUID is required' });
+  }
+  
+  try {
+    const imageData = await fetchImageByUuid(uuid);
+    
+    if (!imageData) {
+      return res.status(404).json({ message: 'Image not found' });
+    }
+    
+    // Convert Buffer to base64 string
+    const base64Image = Buffer.from(imageData).toString('base64');
+    
+    res.status(200).json({ image: base64Image });
+  } catch (error) {
+    console.error('Error getting image:', error);
+    res.status(500).json({ message: 'Failed to retrieve image' });
   }
 };
 
 module.exports = {
   getStudentExamImages,
-  deleteImage
+  deleteImage,
+  getSingleImage
 };
