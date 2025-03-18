@@ -13,14 +13,13 @@ const useGradeAppealApi = () => {
       });
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to submit appeal.");
+        return {success: false, error: errorData.message || "Failed to submit appeal."};
       }
 
       const result = await response.json();
-      console.log("Appeal submitted successfully:", result);
-      return result;
+      return { success: true, data: result};
     } catch (err) {
-      console.error("Error submitting appeal:", err);
+      return { success: false, error: "submitAppeal: Something went wrong. Please try again later." };
     }
   }, [apiClient])
 

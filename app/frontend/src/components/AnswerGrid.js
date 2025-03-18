@@ -16,7 +16,6 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
     const fetchUnresolvedAppeals =  async () => {
       const hasUnresolved = await hasUnresolvedAppeals(examId, studentId);
         setNoUnresolved(!hasUnresolved);
-        console.log("Can submit appeal:", !hasUnresolved);
     }
     fetchUnresolvedAppeals();
     setSelectedAnswers({});
@@ -70,15 +69,10 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
     const modifiedAnswers = Object.keys(selectedAnswers)
         .filter(qKey => confirmations[qKey] && selectedAnswers[qKey][0] !== answers.student[qKey])
         .map(qKey => ({ [qKey]: selectedAnswers[qKey][0] }));
-
-    try {
+    
       const res = await submitAppeal(examId, studentId, modifiedAnswers);
       setSelectedAnswers({});
-      if (onSuccessAppealSubmit) { onSuccessAppealSubmit(true) };
-    } catch (error) {
-      console.log(error);
-      onSuccessAppealSubmit(false);
-    }
+      onSuccessAppealSubmit(res?.success, res?.error);
   };
 
   const formatAnswers = useCallback(() => {
@@ -100,13 +94,13 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
       const [[key, value]] = Object.entries(answer);
       formatted.student[key] = value;
     });
-
+ 
     return formatted;
   }, [correctAnswers, studentAnswers]);
 
   const answers = useMemo(() => formatAnswers(), [formatAnswers]);
   return (
-    <Card className="bg-white border rounded-lg w-full">
+    <Card className="bg-white border rounded-lg w-fulifSuccessl">
       <CardHeader className="flex flex-row items-center bg-muted/50 px-6 py-4">
         <CardTitle>Answer Comparison</CardTitle>
       </CardHeader>

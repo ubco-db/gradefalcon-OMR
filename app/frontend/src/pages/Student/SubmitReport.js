@@ -235,8 +235,8 @@ const SubmitReport = () => {
                         appealing={true}
                         examId={selectedExam.exam_id}
                         studentId={selectedExam.student_id}
-                        onSuccessAppealSubmit={(ifSuccess) => {
-                          setSelectedExam();
+                      onSuccessAppealSubmit={(ifSuccess, message) => {
+                          setSelectedExam(null);
                           ifSuccess? (() => {toast({
                             // TODO longsai: use a unified notification service with toast
                             // along with the predefined templates such as info, warning, error with styles and durations
@@ -246,7 +246,7 @@ const SubmitReport = () => {
                           })})() : (() => {
                             toast({
                               title: "Submission error",
-                              description: "Faied to submitted the grade appeal",
+                              description: message,
                               variant:"destructive"
                             })
                           })()
