@@ -765,8 +765,26 @@ const fetchStudentExam = async (req, res, next) => {
   }
 };
 
+const fetchSolutionAnswers = async (req, res , next) => {
+  const examId = req.params.exam_id;
+  try {
+    const answersResult = await pool.query("SELECT answers FROM solution WHERE exam_id = $1", [examId]);
+    if (answersResult.rows.length === 0) {
+      res.status(404).json({ message: "Answers not found" });
+      return;
+    }
+
+    const answers = answersResult.rows[0].answers;
+    res.json(answers);
+
+  } catch (error) {
+    console.error("Error fetching answers:", error);
+    res.status(500).json({ message: "Failed to fetch answers" });
+  }
+}
 /*
- return answer array like ["A", "B", "C", "D"]
+ return answer array like ["A", "B", "C", "D"] for frontend display
+ TODO refactor the frontend code to use the format in the db directly
  */
 const fetchSolution = async (req, res, next) => {
   const exam_id = req.params.exam_id;
@@ -865,6 +883,7 @@ module.exports = {
   getStudentAttempt,
   fetchStudentExam,
   fetchSolution,
+  fetchSolutionAnswers,
   changeGrade,
   getGradeChangeLog,
   deleteMyExam,

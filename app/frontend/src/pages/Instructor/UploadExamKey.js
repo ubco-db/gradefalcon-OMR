@@ -193,7 +193,6 @@ const UploadExamKey = () => {
             )}
           </div>
         </div>
-        <Toaster />
       </div>
     </main>
   );

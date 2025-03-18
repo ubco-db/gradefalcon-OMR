@@ -97,7 +97,6 @@ const NotificationPreferences = () => {
           </div>
         </div>
       </main>
-      <Toaster /> {/* Adding the Toaster component */}
     </>
   );
 };

@@ -514,7 +514,6 @@ const ConfirmExamKey = () => {
         </div>
       )}
 
-      <Toaster />
     </div>
     </main>
   );
