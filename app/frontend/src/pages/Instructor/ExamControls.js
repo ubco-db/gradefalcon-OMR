@@ -24,6 +24,7 @@ const ExamControls = () => {
     questions,
     numQuestions,
     totalMarks,
+    examMaxAppeals,
     template,
     markingSchemes = [],
   } = location.state || {};
@@ -43,6 +44,7 @@ const ExamControls = () => {
     questions,
     numQuestions,
     totalMarks,
+    examMaxAppeals,
     markingSchemes,
     template,
     canViewExam,
@@ -63,6 +65,7 @@ const ExamControls = () => {
           questions: questions,
           numQuestions: numQuestions,
           totalMarks: totalMarks,
+          examMaxAppeals: examMaxAppeals,
           markingSchemes: markingSchemes,
           template: template,
           canViewExam: canViewExam,

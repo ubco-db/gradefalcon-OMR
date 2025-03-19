@@ -4,7 +4,7 @@ const path = require("path");
 const { exec } = require('child_process');
 
 const saveQuestions = async (req, res, next) => {
-  const { questions, classID, examTitle, numQuestions, totalMarks, markingSchemes, template, canViewExam, canViewAnswers } = req.body;
+  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers } = req.body;
 
   console.log("Received data:", {
     questions,
@@ -12,6 +12,7 @@ const saveQuestions = async (req, res, next) => {
     examTitle,
     numQuestions,
     totalMarks,
+    examMaxAppeals,
     markingSchemes,
     template,
     canViewExam,
@@ -23,9 +24,13 @@ const saveQuestions = async (req, res, next) => {
   const questionsArray = questions.map((o) => ({ [`q${o.question}`]: o.option }));
 
   try {
+    // also have the check in db
+    if (examMaxAppeals <= 0) {
+        return res.status(400).json({ message: "Max exam appeals must be greater than 0." });
+    }
     const writeToExam = await pool.query(
-      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, template, viewing_options) VALUES ($1, $2, $3, $4, $5, $6) RETURNING exam_id",
-      [classID, examTitle, numQuestions, totalMarks, template, JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers })]
+      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, exam_max_appeals, template, viewing_options) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING exam_id",
+      [classID, examTitle, numQuestions, totalMarks, examMaxAppeals, template, JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers })]
     );
     const insertedRowId = writeToExam.rows[0].exam_id;
 
