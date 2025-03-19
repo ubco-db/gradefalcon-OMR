@@ -24,6 +24,7 @@ const ExamControls = () => {
     questions,
     numQuestions,
     totalMarks,
+    examMaxAppeals,
     template,
     markingSchemes = [],
     templateId,
@@ -46,13 +47,14 @@ const ExamControls = () => {
       questions,
       numQuestions,
       totalMarks,
+    examMaxAppeals,
       markingSchemes,
       template,
       canViewExam,
       canViewAnswers,
       templateId,
     });
-    
+
     try {
       const token = await getAccessTokenSilently(); // Get the token
       const response = await fetch("/api/exam/saveQuestions", {
@@ -67,6 +69,7 @@ const ExamControls = () => {
           questions: questions,
           numQuestions: numQuestions,
           totalMarks: totalMarks,
+          examMaxAppeals: examMaxAppeals,
           markingSchemes: markingSchemes,
           template: template,
           canViewExam: canViewExam,
@@ -162,7 +165,6 @@ const ExamControls = () => {
           </div>
         </div>
       </main>
-      <Toaster />
     </>
   );
 };

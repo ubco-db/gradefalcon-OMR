@@ -12,6 +12,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from ".
 import { useToast } from "../../components/ui/use-toast";
 import { Toaster } from "../../components/ui/toaster";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
+import { AnswerGrid } from "../../components/AnswerGrid";
 
 const SubmitReport = () => {
   const navigate = useNavigate();
@@ -27,7 +28,10 @@ const SubmitReport = () => {
   const [showAlert, setShowAlert] = useState(false);
   const [error, setError] = useState("");
   const [studentReports, setStudentReports] = useState([]);
+  const [ answers, setAnswers ] = useState([]);
+  const [ studentAnswers, setStudentAnswers ] = useState([]);
   const { toast } = useToast();
+  const [ showFrontImg, setShowFrontImg] = useState(true);
 
   useEffect(() => {
     const fetchExamsAndReports = async () => {
@@ -73,6 +77,7 @@ const SubmitReport = () => {
     fetchExamsAndReports();
   }, [getAccessTokenSilently]);
 
+  // exam detaisl from selection
   const handleExamChange = async (value) => {
     try {
       const token = await getAccessTokenSilently();
@@ -87,10 +92,32 @@ const SubmitReport = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setSelectedExam(data.exam);
+        setSelectedExam(data.exam); // exam_id, student_id, grade, chosen_answers, exam_title, total_marks, course_id, course_name, viewing_options
         setGrade(data.exam.grade);
         setTotalMarks(data.exam.total_marks);
-
+        setStudentAnswers(data.exam.chosen_answers);
+        const fetchSolution = async () => {
+          try {
+            const token = await getAccessTokenSilently();
+            const response = await fetch(`/api/exam/fetchSolutionAnswers/${data.exam.exam_id}`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              credentials: "include",
+            });
+            if (response.ok) {
+              const data = await response.json();
+              setAnswers(data);
+            } else {
+              console.error("Failed to fetch answers");
+            }
+          } catch (err) {
+            console.error("Error fetching answers:", err);
+          }
+        };
+        fetchSolution();
       } else {
         console.error("Failed to fetch exam details");
       }
@@ -135,63 +162,6 @@ const SubmitReport = () => {
     }
   };
 
-  const handleReportSubmit = async (event) => {
-    event.preventDefault();
-
-    if (!selectedExam) {
-      setError("Please select an exam.");
-      setShowAlert(true);
-      return;
-    }
-
-    if (!reportText.trim()) {
-      setError("Please enter a message.");
-      setShowAlert(true);
-      return;
-    }
-
-    // Check if there's a pending report for this exam
-    const pendingReport = studentReports.find(
-      (report) => report.exam_id === selectedExam.exam_id && report.status === "Pending"
-    );
-
-    if (pendingReport) {
-      setError("You already have a pending report for this exam.");
-      setShowAlert(true);
-      return;
-    }
-
-    try {
-      const token = await getAccessTokenSilently();
-      const response = await fetch("/api/reports/submit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          exam_id: selectedExam.exam_id,
-          report_text: reportText,
-        }),
-      });
-
-      if (response.ok) {
-        setIsSubmitted(true);
-        toast({
-          title: "Success",
-          description: "Report submitted successfully.",
-        });
-        setTimeout(() => {
-          navigate("/studentReportsDashboard");
-        }, 1000);
-      } else {
-        console.error("Failed to submit report");
-      }
-    } catch (error) {
-      console.error("Error submitting report:", error);
-    }
-  };
-
   return (
     <>
       <main className="flex flex-col gap-4 p-2">
@@ -221,10 +191,10 @@ const SubmitReport = () => {
             </div>
           )}
 
-          <div className="grid flex-1 gap-4 overflow-auto p-4 md:grid-cols-2 lg:grid-cols-3">
-            <div className="grid gap-8 md:grid-cols-1 lg:grid-cols-1">
+          <div className="grid flex-1 gap-4 overflow-auto p-4 md:grid-cols-2 lg:grid-cols-12">
+            <div className="grid gap-8 md:grid-cols-1 lg:grid-cols-2 lg:col-span-5">
               <div className="grid auto-rows-max items-start gap-8">
-                <Card className="bg-white border rounded-lg p-6">
+                <Card className="bg-white border rounded-lg p-6 w-full">
                   <CardHeader>
                     <CardTitle>Select Exam</CardTitle>
                   </CardHeader>
@@ -245,78 +215,79 @@ const SubmitReport = () => {
                       </Select>
                     </div>
                   </CardContent>
+                  <CardContent>
+                    <div className="grid gap-6 mt-4">
+                      <div className="grid gap-3">
+                        <Label htmlFor="grade">Grade</Label>
+                        <Label id="grade">{grade} /<span className="text-gray-500">{totalMarks}</span></Label>  {/* */}
+                      </div>
+                    </div>
+                  </CardContent>
                 </Card>
 
                 {selectedExam && (
-                  <Card className="bg-white border rounded-lg p-6">
-                    <CardHeader>
-                      <CardTitle>Report</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="grid gap-6">
-                        <div className="grid gap-3">
-                          <Label htmlFor="grade">Grade</Label>
-                          <Label id="grade">{grade} /<span className="text-gray-500">{totalMarks}</span></Label>  {/* */}
-                        </div>
-                        <div className="grid gap-3">
-                          <Label htmlFor="content">Message</Label>
-                          <Textarea
-                            id="content"
-                            placeholder="comments..."
-                            className="min-h-[9.5rem]"
-                            value={reportText}
-                            onChange={(e) => setReportText(e.target.value)}
-                            disabled={isSubmitted}
-                          />
-                          <TooltipProvider>
-                            <Button
-                              type="submit"
-                              size="sm"
-                              className="ml-auto gap-1.5"
-                              onClick={handleReportSubmit}
-                              disabled={isSubmitted}
-                            >
-                              Submit
-                              <ArrowUpRightIcon className="h-3.5 w-3.5" />
-                            </Button>
-                          </TooltipProvider>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                  <div className="flex-grow flex flex-col">
+                    <AnswerGrid
+                        totalQuestions={answers?.length}
+                        correctAnswers={answers}
+                        studentAnswers={studentAnswers}
+                        appealing={true}
+                        examId={selectedExam.exam_id}
+                        studentId={selectedExam.student_id}
+                      onSuccessAppealSubmit={(ifSuccess, message) => {
+                          setSelectedExam(null);
+                          ifSuccess? (() => {toast({
+                            // TODO longsai: use a unified notification service with toast
+                            // along with the predefined templates such as info, warning, error with styles and durations
+                            title: "Submission successs",
+                            description: "Successful submitted the grade appeal",
+                            duration: 1000,
+                          })})() : (() => {
+                            toast({
+                              title: "Submission error",
+                              description: message,
+                              variant:"destructive"
+                            })
+                          })()
+                          }}/>
+                  </div>
                 )}
+
               </div>
             </div>
 
             {selectedExam && (
-              <div className="relative flex h-full min-h-[50vh] flex-col rounded-xl bg-muted/50 p-4 lg:col-span-2">
+              <div className="relative flex h-full min-h-[50vh] flex-col rounded-xl bg-muted/50 p-4 lg:col-span-7">
                 <Badge variant="outline" className="absolute right-3 top-3">
                   Exam
                 </Badge>
+                <div className="flex gap-4 mb-4">
+                  <Button onClick={() => setShowFrontImg(!showFrontImg)}>Toggle Front/Back</Button>
+                </div>
 
-                <div style={{ display: "flex", gap: "20px" }}>
-                {frontSrc ? (
+                  <div className="flex flex-wrap justify-center gap-4">
+                {showFrontImg && frontSrc ? (
                   <img
                     src={frontSrc}
                     alt="Student Exam Front Page"
                     style={{
-                      maxWidth: "50%",
+                      maxWidth: "100%",
                       height: "auto",
                     }}
                   />
-                ) : (
+                ) : showFrontImg && (
                   <p>No front image found</p>
                 )}
-                {backSrc ? (
+                {!showFrontImg && backSrc ? (
                   <img
                     src={backSrc}
                     alt="Student Exam Back Page"
                     style={{
-                      maxWidth: "50%",
+                      maxWidth: "100%",
                       height: "auto",
                     }}
                   />
-                ) : (
+                ) : !showFrontImg && (
                   <p>No back image found</p>
                 )}
               </div>
@@ -325,7 +296,6 @@ const SubmitReport = () => {
           </div>
         </div>
       </main>
-      <Toaster /> {/* Adding the Toaster component */}
     </>
   );
 };

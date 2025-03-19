@@ -153,7 +153,6 @@ const AccountSettings = () => {
           </Card>
         </main>
       </div>
-      <Toaster /> {/* Adding the Toaster component */}
     </>
   );
 };

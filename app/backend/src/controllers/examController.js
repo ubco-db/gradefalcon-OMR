@@ -24,7 +24,7 @@ setInterval(() => {
           console.error(`Failed to delete PDF file for template ${id}:`, err);
         }
       }
-      
+
       templateCache.delete(id);
       console.log(`Template ${id} expired and removed from cache with associated resources`);
     }
@@ -35,14 +35,14 @@ setInterval(() => {
 const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
   // 检查是否已有此用户此考试的资源
   for (const [id, data] of templateCache.entries()) {
-    if (data.userId === userId && 
-        data.courseId === courseId && 
-        data.examTitle === examTitle && 
+    if (data.userId === userId &&
+        data.courseId === courseId &&
+        data.examTitle === examTitle &&
         data.classId === classId) {
       return id; // 返回现有ID以覆盖
     }
   }
-  
+
   // 没有找到现有资源，创建新ID
   return uuidv4();
 };
@@ -50,27 +50,27 @@ const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
 // 新方法：获取暂存的资源（模板和PDF）
 const getStoredResource = async (req, res) => {
   const { resourceId } = req.params;
-  
+
   if (!templateCache.has(resourceId)) {
     return res.status(404).json({ message: "Resource not found or expired" });
   }
-  
+
   const resourceData = templateCache.get(resourceId);
-  
+
   // 检查PDF文件是否存在
   if (!resourceData.pdfPath || !fs.existsSync(resourceData.pdfPath)) {
     return res.status(404).json({ message: "PDF file not found" });
   }
-  
+
   try {
     // 设置响应头并发送PDF文件
     res.setHeader('Content-Disposition', `attachment; filename="${path.basename(resourceData.pdfPath)}"`);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('X-Template-Data', JSON.stringify(resourceData.template)); // 在响应头中包含模板数据
-    
+
     const pdfStream = fs.createReadStream(resourceData.pdfPath);
     pdfStream.pipe(res);
-    
+
     // 记录访问但不删除资源，允许多次下载
     resourceData.lastAccessed = Date.now();
     templateCache.set(resourceId, resourceData);
@@ -83,26 +83,26 @@ const getStoredResource = async (req, res) => {
 // 新方法：使用资源ID保存考试后，清理暂存资源
 const finalizeResource = async (req, res) => {
   const { resourceId, examId } = req.body;
-  
+
   if (!templateCache.has(resourceId)) {
     return res.status(404).json({ message: "Resource not found or expired" });
   }
-  
+
   try {
     const resourceData = templateCache.get(resourceId);
-    
+
     // 获取目标位置
     const targetDir = path.join(__dirname, `../assets/exams/exam_${examId}`);
     ensureDirectoryExistence(targetDir);
-    
+
     // 复制PDF文件到最终位置
     const targetPdfPath = path.join(targetDir, `template_${examId}.pdf`);
     fs.copyFileSync(resourceData.pdfPath, targetPdfPath);
-    
+
     // 从缓存中删除资源（但保留原始文件直到下一次清理）
     templateCache.delete(resourceId);
-    
-    res.status(200).json({ 
+
+    res.status(200).json({
       message: "Resource finalized successfully",
       pdfPath: targetPdfPath
     });
@@ -113,7 +113,7 @@ const finalizeResource = async (req, res) => {
 };
 
 const saveQuestions = async (req, res, next) => {
-  const { questions, classID, examTitle, numQuestions, totalMarks, markingSchemes, template, canViewExam, canViewAnswers, templateId } = req.body;
+  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId } = req.body;
 
   console.log("Received data:", {
     questions: questions ? "Provided" : "Not provided",
@@ -121,8 +121,9 @@ const saveQuestions = async (req, res, next) => {
     examTitle,
     numQuestions,
     totalMarks,
-    markingSchemes: markingSchemes ? "Provided" : "Not provided",
-    template: template ? "Provided" : "Not provided",
+    examMaxAppeals,
+    markingSchemes,
+    template,
     canViewExam,
     canViewAnswers,
     templateId
@@ -130,7 +131,7 @@ const saveQuestions = async (req, res, next) => {
 
   // Determine template source - from cache or provided in request
   var templateFile = null;
-  
+
   if (templateId && templateCache.has(templateId)) {
     // Get template from cache
     const templateData = templateCache.get(templateId).template.pages;
@@ -149,13 +150,17 @@ const saveQuestions = async (req, res, next) => {
   try {
     // Create options object
     const options = JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers });
-    
+
     // Insert into exam table - change from JSONB[] to JSONB
+    // also have the check in db
+    if (examMaxAppeals <= 0) {
+        return res.status(400).json({ message: "Max exam appeals must be greater than 0." });
+    }
     const writeToExam = await pool.query(
-      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6::JSONB, $7) RETURNING exam_id",
-      [classID, examTitle, numQuestions, totalMarks, template, templateFile, options]
+      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, exam_max_appeals, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6::JSONB, $7) RETURNING exam_id",
+      [classID, examTitle, numQuestions, totalMarks, examMaxAppeals, template, templateFile, options]
     );
-    
+
     const insertedRowId = writeToExam.rows[0].exam_id;
 
     const writeToSolution = await pool.query("INSERT INTO solution (exam_id, answers, marking_schemes) VALUES ($1, $2, $3)", [
@@ -460,13 +465,13 @@ const saveResults = async (req, res, next) => {
         console.warn("Skipping student with no ID:", student);
         continue;
       }
-      
+
       const student_id = student.StudentID;
       const grade = student.Score;
-      
+
       // Handle chosen_answers - could be nested or flat
       let chosen_answers = student.chosen_answers;
-      
+
       // If chosen_answers is not present, extract q* fields
       if (!chosen_answers) {
         chosen_answers = {};
@@ -477,11 +482,11 @@ const saveResults = async (req, res, next) => {
       questionFields = JSON.stringify(questionFields);
       // Handle image_uuids
       const image_uuids = student.image_uuids || {};
-      
+
       // Check if there's an existing record
       const checkQuery = "SELECT * FROM studentResults WHERE student_id = $1 AND exam_id = $2";
       const checkResult = await pool.query(checkQuery, [student_id, exam_id]);
-      
+
       if (checkResult.rows.length > 0) {
         // Update existing record
         const updateQuery = `
@@ -499,7 +504,7 @@ const saveResults = async (req, res, next) => {
         await pool.query(insertQuery, [student_id, exam_id, grade, questionFields, image_uuids]);
       }
     }
-    
+
     // Update the "graded" status in the exams table
     await pool.query("UPDATE exam SET graded = true WHERE exam_id = $1", [exam_id]);
 
@@ -558,7 +563,7 @@ async function generateCustomBubbleSheet(req, res) {
     // 导入templateGenerator中的函数
     const { calculateQuestionDistribution, generateLatexDocument, generateCustomJsonTemplate } = require('../utils/templateGenerator');
     const { LAYOUT_PARAMS } = require('../utils/templateConstants');
-    
+
     // 生成随机文件名
     const randomFileName = `template_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
     const latexFilePath = path.join(outputDir, `${randomFileName}.tex`);
@@ -567,17 +572,17 @@ async function generateCustomBubbleSheet(req, res) {
     // 计算题目分布
     const { usedCommandTypes, structuredPositions } = calculateQuestionDistribution(numQuestions, numOptions, LAYOUT_PARAMS);
     usedCommandTypes.add('placeQuestionAt'); // 确保始终包含placeQuestionAt命令
-    
+
     // 生成LaTeX文档
     const latexDocument = await generateLatexDocument(structuredPositions, usedCommandTypes, courseId, examTitle, classId);
     fs.writeFileSync(latexFilePath, latexDocument);
 
     // 生成JSON模板并存储在缓存中
     const jsonTemplate = await generateCustomJsonTemplate(numQuestions, courseId, examTitle, classId, structuredPositions);
-    
+
     // 检查该用户是否已有该考试的资源存在，如果有则覆盖
     const templateId = getResourceIdForUser(userId, courseId, examTitle, classId);
-    
+
     // 编译LaTeX文件生成PDF
     exec(`pdflatex -output-directory=${outputDir} ${latexFilePath}`, (error, stdout, stderr) => {
       if (error) {
@@ -595,7 +600,7 @@ async function generateCustomBubbleSheet(req, res) {
         classId,
         userId
       });
-      
+
       console.log(`Template and PDF ${templateId} stored in cache`);
 
       // 设置响应头并流式传输PDF文件
@@ -781,8 +786,26 @@ const fetchStudentExam = async (req, res, next) => {
   }
 };
 
+const fetchSolutionAnswers = async (req, res , next) => {
+  const examId = req.params.exam_id;
+  try {
+    const answersResult = await pool.query("SELECT answers FROM solution WHERE exam_id = $1", [examId]);
+    if (answersResult.rows.length === 0) {
+      res.status(404).json({ message: "Answers not found" });
+      return;
+    }
+
+    const answers = answersResult.rows[0].answers;
+    res.json(answers);
+
+  } catch (error) {
+    console.error("Error fetching answers:", error);
+    res.status(500).json({ message: "Failed to fetch answers" });
+  }
+}
 /*
- return answer array like ["A", "B", "C", "D"]
+ return answer array like ["A", "B", "C", "D"] for frontend display
+ TODO refactor the frontend code to use the format in the db directly
  */
 const fetchSolution = async (req, res, next) => {
   const exam_id = req.params.exam_id;
@@ -879,6 +902,7 @@ module.exports = {
   getStudentAttempt,
   fetchStudentExam,
   fetchSolution,
+  fetchSolutionAnswers,
   changeGrade,
   getGradeChangeLog,
   deleteMyExam,

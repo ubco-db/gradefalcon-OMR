@@ -14,6 +14,7 @@ root.render(
       audience: "https://localhost:3000/api",
       scope: "read:current_user update:current_user_metadata"
     }}
+    cacheLocation="localstorage"
   >
     <App />
   </Auth0Provider>

@@ -230,7 +230,6 @@ const fetchStudentScores = async () => {
       <Button onClick={saveResults} className="mt-4 self-end">
         Save Results
       </Button>
-      <Toaster />
     </main>
   );
 };

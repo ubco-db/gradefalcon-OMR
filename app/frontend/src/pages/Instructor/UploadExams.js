@@ -213,7 +213,6 @@ const UploadExam = () => {
             )}
           </div>
         </div>
-        <Toaster />
       </div>
     </main>
   );

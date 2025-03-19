@@ -38,6 +38,7 @@
     "cmdk": "^1.0.0",
     "console-browserify": "^1.2.0",
     "customize-cra": "^1.0.0",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.4.5",
     "jest-puppeteer": "^10.0.1",
     "lucide-react": "^0.407.0",

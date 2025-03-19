@@ -283,7 +283,6 @@ const ExamBoard = () => {
           </div>
         </DialogContent>
       </Dialog>
-      <Toaster />
     </main>
   );
 };

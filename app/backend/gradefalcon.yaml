@@ -1,0 +1,167 @@
+openapi: 3.1.0
+info:
+  title: Grade Appeals API
+  description: API for managing grade appeals in the system
+  version: 1.0.0
+servers:
+  - url: 'http://localhost:3000/api/'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+security:
+  - bearerAuth: []
+paths:
+  /gradeappeal/submit:
+    post:
+      summary: Submit a grade appeal
+      operationId: submitGradeAppeal
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                exam_id:
+                  type: string
+                student_id:
+                  type: string
+                appeal_details:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties:
+                      type: string
+      tags:
+        - Grade Appeals
+      responses:
+        '200':
+          description: Grade appeal submitted successfully
+        '400':
+          description: Bad request
+        '403':
+          description: Appeal limit exceeded for this exam
+
+  /gradeappeal/respond:
+    post:
+      summary: Respond to a grade appeal
+      operationId: respondGradeAppeal
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grade_appeal_id:
+                  type: string
+                reply_details:
+                  type: array
+                  items:
+                    type: object
+                    additionalProperties:
+                      type: string
+      tags:
+        - Grade Appeals
+      responses:
+        '200':
+          description: Response recorded successfully
+        '400':
+          description: Bad request
+
+  /gradeappeal/resolved/exams/{exam_id}/students/{student_id}:
+    get:
+      summary: Fetch resolved grade appeals for a student in an exam
+      operationId: fetchStudentResolvedGradeAppeals
+      security:
+        - bearerAuth: []
+      tags:
+        - Grade Appeals
+      parameters:
+        - name: exam_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of resolved grade appeals
+        '404':
+          description: Not found
+
+  /gradeappeal/unresolved/exams/{exam_id}/students/{student_id}:
+    get:
+      summary: Fetch unresolved grade appeals for a student in an exam
+      operationId: fetchStudentUnresolvedGradeAppeals
+      security:
+        - bearerAuth: []
+      tags:
+        - Grade Appeals
+      parameters:
+        - name: exam_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: student_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of unresolved grade appeals
+        '404':
+          description: Not found
+
+  /gradeappeal/unresolved/exams/{exam_id}:
+    get:
+      summary: Fetch unresolved grade appeals for an exam
+      operationId: fetchExamUnresolvedGradeAppeals
+      security:
+        - bearerAuth: []
+      tags:
+        - Grade Appeals
+      parameters:
+        - name: exam_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of unresolved grade appeals
+        '404':
+          description: Not found
+
+  /gradeappeal/id/{grade_appeal_id}:
+    get:
+      summary: Fetch grade appeal by ID
+      operationId: fetchGradeAppealById
+      security:
+        - bearerAuth: []
+      tags:
+        - Grade Appeals
+      parameters:
+        - name: grade_appeal_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Grade appeal details
+        '404':
+          description: Not found

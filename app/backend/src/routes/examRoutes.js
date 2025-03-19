@@ -19,6 +19,7 @@ const {
   getStudentAttempt,
   fetchStudentExam,
   fetchSolution,
+  fetchSolutionAnswers,
   changeGrade,
   getGradeChangeLog,
   deleteMyExam,
@@ -769,8 +770,9 @@ router.post("/saveResults", saveResults);
 router.post("/fetchStudentExam/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), fetchStudentExam);
 
 router.post("/fetchSolution/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), fetchSolution);
+router.post('/fetchSolutionAnswers/:exam_id', checkJwt, checkPermissions(["read:exam_student"]), fetchSolutionAnswers);
 
-router.post("/changeGrade", checkJwt, checkPermissions(["update_grades"]), changeGrade);
+router.post("/changeGrade", checkJwt, checkPermissions(["update:grades"]), changeGrade);
 
 
 //test routes

@@ -47,6 +47,7 @@ const ConfirmExamKey = () => {
   const [selectedQuestions, setSelectedQuestions] = useState([]);
   const [markingSchemes, setMarkingSchemes] = useState([]);
   const [totalMarks, setTotalMarks] = useState();
+  const [examMaxAppeals, setExamMaxAppeals] = useState(3);
   const [showCustomSchemeModal, setShowCustomSchemeModal] = useState(false);
   const [customScheme, setCustomScheme] = useState({
     questions: [],
@@ -299,6 +300,7 @@ const ConfirmExamKey = () => {
               markingSchemes: markingSchemes,
               template: template,
               totalMarks: totalMarks,
+              examMaxAppeals: examMaxAppeals,
             }}
           >
             <Button size="icon" className="h-10 w-10">
@@ -415,7 +417,7 @@ const ConfirmExamKey = () => {
               Add Custom Marking Scheme
             </Button>
           </CardFooter>
-          <div className="mt-4"> 
+          <div className="mt-4">
           <Label>
             Total Marks
           </Label>
@@ -425,6 +427,19 @@ const ConfirmExamKey = () => {
             onChange={(e) => setTotalMarks(e.target.value)}
             className= "w-15"
           />
+            <Label>
+              Max Exam Appeals
+            </Label>
+            <Input
+                type="number"
+                value={examMaxAppeals}
+                min = "1"
+                onChange={(e) => {
+                  const value = Math.max(parseInt(e.target.value, 10) || 1);
+                  setExamMaxAppeals(value);
+                  }}
+                className="w-15"
+            />
         </div>
         </Card>
       </div>
@@ -514,7 +529,6 @@ const ConfirmExamKey = () => {
         </div>
       )}
 
-      <Toaster />
     </div>
     </main>
   );
