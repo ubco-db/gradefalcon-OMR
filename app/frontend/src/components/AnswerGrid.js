@@ -8,16 +8,16 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [confirmations, setConfirmations] = useState({});
   const [ noUnresolved, setNoUnresolved ] = useState(false);
-  const { submitAppeal, hasUnresolvedAppeals } = useGradeAppealApi();
+  const { submitAppeal, fetchUnresolvedAppeals } = useGradeAppealApi();
 
 
   useEffect(() => {
     
-    const fetchUnresolvedAppeals =  async () => {
-      const hasUnresolved = await hasUnresolvedAppeals(examId, studentId);
-        setNoUnresolved(!hasUnresolved);
+    const fetchUnresolved =  async () => {
+      const hasUnresolvedData = await fetchUnresolvedAppeals(examId, studentId);
+      setNoUnresolved(!hasUnresolvedData?.success);
     }
-    fetchUnresolvedAppeals();
+    fetchUnresolved();
     setSelectedAnswers({});
     setConfirmations({});
   }, [examId, studentId]);
@@ -183,7 +183,6 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
         </ScrollArea>
       </CardContent>
       <CardContent>
-        // The submit button will only be enable no unresolved
         {appealing && noUnresolved && (
              <ButtonContainer
                isAllSelectConfirmed={allSelectedConfirmed}

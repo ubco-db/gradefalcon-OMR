@@ -53,7 +53,7 @@ CREATE TABLE exam (
     page_count int,
     viewing_options JSONB,
     graded boolean default false,
-    exam_max_appeals INT NOT NULL DEFAULT 3,
+    exam_max_appeals INT NOT NULL DEFAULT 3 CHECK ( exam_max_appeals > 0 ),
     foreign key (class_id) references classes(class_id)
 );
 

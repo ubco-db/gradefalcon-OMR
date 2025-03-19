@@ -13,26 +13,34 @@ const useGradeAppealApi = () => {
       });
       if (!response.ok) {
         const errorData = await response.json();
-        return {success: false, error: errorData.message || "Failed to submit appeal."};
+        return {success: false, error: errorData?.message || "Failed to submit appeal."};
       }
 
       const result = await response.json();
-      return { success: true, data: result};
+      return {success: true, data: result};
     } catch (err) {
-      return { success: false, error: "submitAppeal: Something went wrong. Please try again later." };
+      return {success: false, error: "submitAppeal: Something went wrong. Please try again later."};
     }
   }, [apiClient])
 
-  const hasUnresolvedAppeals = useCallback(async (examId, studentId) => {
+  /**
+   * Check if a student has any unresolved appeals for a given exam. true if there are unresolved appeals, false if there are none.
+   * @type {(function(*, *): Promise<boolean|undefined>)|*}
+   */
+  const fetchUnresolvedAppeals = useCallback(async (examId, studentId) => {
     try {
       const response = await apiClient(`/api/gradeappeal/unresolved/exams/${examId}/students/${studentId}`, {
         method: "GET",
       });
 
-      return response.status !== 404;
+      if (!response.ok) {
+        const errorData = await response.json();
+        return {success: false, error: errorData?.message || "Failed to fetch unresolved appeals."};
+      }
+      const result = await response.json();
+      return {success: true, data: result?.data};
     } catch (err) {
-      console.error("Error fetching unresolved appeals:", err);
-      return false;
+      return {success: false, error: "fetchUnresolvedAppeals: Something went wrong. Please try again later."};
     }
   }, [apiClient]);
 
@@ -41,11 +49,14 @@ const useGradeAppealApi = () => {
       const response = await apiClient(`/api/gradeappeal/unresolved/exams/${examId}/students/${studentId}`, {
         method: "GET",
       });
-      if (response.status === 200) {
-        return response.json();
+      if (!response.ok) {
+        const errorData = await response.json();
+        return {success: false, error: errorData?.message || "Failed to fetch unresolved appeals."};
       }
+      const result = await response.json();
+      return {success: true, data: result?.data};
     } catch (err) {
-      console.error("Error fetching unresolved grade appeals:", err);
+      return {success: false, error: "fetchUnresolvedGradeAppeals: Something went wrong. Please try again later."};
     }
   }, [apiClient]);
 
@@ -105,7 +116,14 @@ const useGradeAppealApi = () => {
   }, [apiClient]);
 
 
-  return {submitAppeal, hasUnresolvedAppeals, fetchResolvedGradeAppeals, fetchExamUnresolvedGradeAppeals, respondGradeAppeal, fetchGradeAppealById};
+  return {
+    submitAppeal,
+    fetchUnresolvedAppeals,
+    fetchResolvedGradeAppeals,
+    fetchExamUnresolvedGradeAppeals,
+    respondGradeAppeal,
+    fetchGradeAppealById
+  };
 };
 
 export default useGradeAppealApi;

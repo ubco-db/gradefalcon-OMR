@@ -109,7 +109,6 @@ const SubmitReport = () => {
             });
             if (response.ok) {
               const data = await response.json();
-              console.log("data", data);
               setAnswers(data);
             } else {
               console.error("Failed to fetch answers");
