@@ -433,7 +433,11 @@ const ConfirmExamKey = () => {
             <Input
                 type="number"
                 value={examMaxAppeals}
-                onChange={(e) => setExamMaxAppeals(e.target.value)}
+                min = "1"
+                onChange={(e) => {
+                  const value = Math.max(parseInt(e.target.value, 10) || 1);
+                  setExamMaxAppeals(value);
+                  }}
                 className="w-15"
             />
         </div>
