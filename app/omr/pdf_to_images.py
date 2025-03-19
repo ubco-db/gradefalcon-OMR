@@ -252,41 +252,78 @@ def validate_and_split_images(images):
 
 def pdf_to_images(input_dir, output_dir, dpi=300, double_pages=False):
     """Convert PDF files to images and save in output directory"""
-    for root, _, files in os.walk(input_dir):
-        for filename in files:
-            if filename.endswith(".pdf"):
-                pdf_path = os.path.join(root, filename)
-                images = convert_from_path(pdf_path, dpi=dpi)
-                
-                if double_pages:
-                    try:
-                        page_1_dir = os.path.join(output_dir, "page_1")
-                        page_2_dir = os.path.join(output_dir, "page_2")
-                        os.makedirs(page_1_dir, exist_ok=True)
-                        os.makedirs(page_2_dir, exist_ok=True)
-                        
-                        # process images: correct perspective, resize
-                        processed_images = validate_and_split_images(images)
-                        
-                        for i, image in enumerate(processed_images):
-                            if i % 2 == 0:
-                                image.save(os.path.join(page_1_dir, f"{os.path.splitext(filename)[0]}_page_{i//2 + 1}.png"), "PNG")
-                            else:
-                                image.save(os.path.join(page_2_dir, f"{os.path.splitext(filename)[0]}_page_{i//2 + 1}.png"), "PNG")
-                    except Exception as e:
-                        print(f"Error processing double-sided PDF {filename}: {e}")
-                else:
-                    page_1_dir = os.path.join(output_dir, "page_1")
-                    os.makedirs(page_1_dir, exist_ok=True)
+    results = {
+        "success": True,
+        "processed_files": [],
+        "error": None
+    }
+    
+    try:
+        for root, _, files in os.walk(input_dir):
+            for filename in files:
+                if filename.endswith(".pdf"):
+                    pdf_path = os.path.join(root, filename)
                     
                     try:
-                        # process single-sided images
-                        processed_images = []
-                        for image in images:
-                            corrected_img, _, _ = process_image(image)
-                            processed_images.append(corrected_img)
+                        images = convert_from_path(pdf_path, dpi=dpi)
                         
-                        for i, image in enumerate(processed_images):
-                            image.save(os.path.join(page_1_dir, f"{os.path.splitext(filename)[0]}_page_{i + 1}.png"), "PNG")
+                        if double_pages:
+                            try:
+                                page_1_dir = os.path.join(output_dir, "page_1")
+                                page_2_dir = os.path.join(output_dir, "page_2")
+                                os.makedirs(page_1_dir, exist_ok=True)
+                                os.makedirs(page_2_dir, exist_ok=True)
+                                
+                                # process images: correct perspective, resize
+                                processed_images = validate_and_split_images(images)
+                                
+                                for i, image in enumerate(processed_images):
+                                    output_filename = f"{os.path.splitext(filename)[0]}_page_{i//2 + 1}.png"
+                                    if i % 2 == 0:
+                                        output_path = os.path.join(page_1_dir, output_filename)
+                                        image.save(output_path, "PNG")
+                                    else:
+                                        output_path = os.path.join(page_2_dir, output_filename)
+                                        image.save(output_path, "PNG")
+                                        
+                                results["processed_files"].append(filename)
+                            except Exception as e:
+                                error_msg = f"Error processing double-sided PDF {filename}: {e}"
+                                print(error_msg)
+                                results["error"] = error_msg
+                                results["success"] = False
+                        else:
+                            try:
+                                page_1_dir = os.path.join(output_dir, "page_1")
+                                os.makedirs(page_1_dir, exist_ok=True)
+                                
+                                # process single-sided images
+                                processed_images = []
+                                for image in images:
+                                    corrected_img, _, _ = process_image(image)
+                                    processed_images.append(corrected_img)
+                                
+                                for i, image in enumerate(processed_images):
+                                    output_filename = f"{os.path.splitext(filename)[0]}_page_{i + 1}.png"
+                                    output_path = os.path.join(page_1_dir, output_filename)
+                                    image.save(output_path, "PNG")
+                                    
+                                results["processed_files"].append(filename)
+                            except Exception as e:
+                                error_msg = f"Error processing single-sided PDF {filename}: {e}"
+                                print(error_msg)
+                                results["error"] = error_msg
+                                results["success"] = False
                     except Exception as e:
-                        print(f"Error processing single-sided PDF {filename}: {e}")
+                        error_msg = f"Error converting PDF to images {filename}: {e}"
+                        print(error_msg)
+                        results["error"] = error_msg
+                        results["success"] = False
+        
+        return results
+    except Exception as e:
+        error_msg = f"General error in pdf_to_images: {e}"
+        print(error_msg)
+        results["error"] = error_msg
+        results["success"] = False
+        return results

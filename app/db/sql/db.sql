@@ -37,7 +37,7 @@ CREATE TABLE student (
     email text unique,
     name text
 );
-
+-- TODO: store pdf template in database
 CREATE TABLE exam (
     exam_id serial primary key,
     class_id int not null,
@@ -45,7 +45,7 @@ CREATE TABLE exam (
     total_questions int,
     total_marks int,
     template text,
-    template_file JSONB[],
+    template_file JSONB,
     mean double precision,
     high double precision,
     low double precision,

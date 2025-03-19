@@ -90,7 +90,7 @@ const ExamControls = () => {
           console.log("Response was not JSON");
         }
         setLoading(false);
-        navigate("/instructor/dashboard", { state: { success: true, message: "Exam created successfully!" } });
+        navigate("/dashboard", { state: { success: true, message: "Exam created successfully!" } });
       } else {
         console.error("Failed to save questions and marking schemes");
         toast({

@@ -37,10 +37,10 @@ const JSON_TEMPLATE_CONSTANTS = {
     fieldBlock: {
         fieldDetectionType: "BUBBLES_THRESHOLD",
         bubbleFieldType: "CUSTOM_ID",
-        origin: [344, 198],
+        origin: [343, 167],
         fieldLabels: ["roll1..8"],
-        bubblesGap: 47,
-        labelsGap: 36
+        bubblesGap: 47.2,
+        labelsGap: 36.5
     }
   },
   

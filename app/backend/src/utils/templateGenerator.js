@@ -22,7 +22,8 @@ function calculateCoordinates(page, row, col, layoutParams, isWide = false, coor
     firstPageStartY,
     otherPagesStartY
   } = layoutParams;
-  
+  const ppi = 150;
+
   if (coordType === "latex") {
     // LaTeX坐标计算逻辑
     const x = isWide ? startX : startX + (col - 1) * colWidth;
@@ -30,8 +31,8 @@ function calculateCoordinates(page, row, col, layoutParams, isWide = false, coor
     return { x, y };
   } else if (coordType === "template") {
     // JSON模板坐标计算逻辑
-    const xPos = Math.round(113 + (col - 1) * 267); // 调整模板比例
-    const yPos = Math.round(980 - (row - 1) * 36);  // 调整模板比例
+    const xPos = Math.round(96 + (col - 1) * colWidth * ppi); // 调整模板比例
+    const yPos = Math.round((page === 1 ? 476 : 26) - (row - 1) * rowHeight * ppi);  // 调整模板比例
     return { x: xPos, y: yPos };
   }
   
@@ -707,18 +708,20 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
   // 为每页创建模板
   for (let page = 1; page <= pages; page++) {
 
-    // 使用基础模板创建此页的模板
-    let template = JSON_TEMPLATE_CONSTANTS.basePageTemplate;
+    // 使用基础模板创建此页的模板 - 创建深拷贝而非引用
+    let template = JSON.parse(JSON.stringify(JSON_TEMPLATE_CONSTANTS.basePageTemplate));
     
     // 仅在第一页添加学生ID区域
     if (page === 1) {
       // 复制学生ID区域的配置
-      template.customBubbleFieldTypes = {...JSON_TEMPLATE_CONSTANTS.studentIdSection.customBubbleFieldTypes};
-      template.customLabels = {...JSON_TEMPLATE_CONSTANTS.studentIdSection.customLabels};
+      template.customBubbleFieldTypes = JSON.parse(JSON.stringify(JSON_TEMPLATE_CONSTANTS.studentIdSection.customBubbleFieldTypes));
+      template.customLabels = JSON.parse(JSON.stringify(JSON_TEMPLATE_CONSTANTS.studentIdSection.customLabels));
       template.fieldBlocks = {
-        StudentID: JSON_TEMPLATE_CONSTANTS.studentIdSection.fieldBlock
+        StudentID: JSON.parse(JSON.stringify(JSON_TEMPLATE_CONSTANTS.studentIdSection.fieldBlock))
       };
     } else {
+      template.customBubbleFieldTypes = {}; // 确保其他页面初始化为空对象
+      template.customLabels = {};
       template.fieldBlocks = {};
     }
     
@@ -727,7 +730,7 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
       const pageStructure = structuredPositions.pages[page];
       
       // 按block遍历页面
-      let blockCounter = 1; // 从1开始计数
+      let blockCounter = 1; // 每页从1开始计数
       Object.values(pageStructure.blocks).forEach(blockData => {
         // 按列组织题目
         const columnMap = {};

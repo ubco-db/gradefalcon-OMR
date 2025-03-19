@@ -33,6 +33,7 @@ const NewExam = () => {
   const [numQuestions, setNumQuestions] = useState(100); // Default to 100 MCQs
   const [numOptions, setNumOptions] = useState(5); // Default to 5 options
   const [loading, setLoading] = useState(false);
+  const [templateId, setTemplateId] = useState(null); // 添加templateId状态
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -232,13 +233,13 @@ const NewExam = () => {
               </RadioGroup>
                 {isCustomTemplate && (
                   <CustomBubbleSheet
-                  courseId={courseId}
-                  examTitle={examTitle}
-                  classId={selectedClassId}
-                  onQuestionsChange={(questions) => setNumQuestions(questions)} // Update numQuestions in NewExam
-                  onOptionsChange={(options) => setNumOptions(options)} // Update numOptions in NewExam
-                />
-                // Display the CustomBubbleSheet component if custom template is selected
+                    courseId={courseId}
+                    examTitle={examTitle}
+                    classId={selectedClassId}
+                    onQuestionsChange={(questions) => setNumQuestions(questions)}
+                    onOptionsChange={(options) => setNumOptions(options)}
+                    onTemplateIdChange={(id) => setTemplateId(id)}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -260,7 +261,15 @@ const NewExam = () => {
                 <Button asChild size="sm" className="px-2 py-1">
                       <Link
                         to={isFormValid() ? "/ManualExamKey" : "#"}
-                        state={{ examTitle: examTitle, classID: selectedClassId, courseId: courseId, template, numQuestions, numOptions }}
+                        state={{ 
+                          examTitle: examTitle, 
+                          classID: selectedClassId, 
+                          courseId: courseId, 
+                          template, 
+                          numQuestions, 
+                          numOptions,
+                          templateId
+                        }}
                         onClick={handleButtonClick}
                       >
                         Manually Select Answers

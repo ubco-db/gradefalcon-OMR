@@ -52,19 +52,19 @@ const fetchStudentScores = async () => {
     const fetchData = async () => {
       try {
         // Preprocess the data, but only if examType is not custom or numQuestions > 100
-        const preprocessData = async () => {
-          const token = await getAccessTokenSilently();
-          const response = await fetch("/api/exam/preprocessingCSV", {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          if (!response.ok) {
-            throw new Error("Network response was not ok");
-          }
-          const data = await response.json();
-          console.log("preprocessData", data);
-        };
+        // const preprocessData = async () => {
+        //   const token = await getAccessTokenSilently();
+        //   const response = await fetch("/api/exam/preprocessingCSV", {
+        //     headers: {
+        //       Authorization: `Bearer ${token}`,
+        //     },
+        //   });
+        //   if (!response.ok) {
+        //     throw new Error("Network response was not ok");
+        //   }
+        //   const data = await response.json();
+        //   console.log("preprocessData", data);
+        // };
   
         // Fetch the max marks for the exam
         const fetchTotalScore = async () => {
@@ -85,8 +85,8 @@ const fetchStudentScores = async () => {
   
         // Only run preprocessingCSV if the examType is not custom or if numQuestions > 100
         if (!(examType === "custom" && numQuestions <= 100)) {
-          console.log("Preprocessing data...");
-          await preprocessData();
+          // console.log("Preprocessing data...");
+          // await preprocessData();
         }
 
         await fetchStudentScores();
@@ -101,7 +101,7 @@ const fetchStudentScores = async () => {
     fetchData();
   }, [getAccessTokenSilently, exam_id, examType, numQuestions]);
 
-  const handleViewClick = (studentId, student_name, grade, image_uuids) => {
+  const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids) => {
     navigate("/instructor/view-exam", {
       state: {
         student_id: studentId,
@@ -110,6 +110,7 @@ const fetchStudentScores = async () => {
         grade: grade,
         total_marks: totalMarks,
         reviewExams: true,
+        chosen_answers: chosen_answers,
         image_uuids: image_uuids, // Pass the image UUIDs to ViewExam.js
       },
     });
@@ -133,7 +134,7 @@ const fetchStudentScores = async () => {
         // Ensure Score is a string for consistency
         Score: student.Score?.toString() || "0"
       }));
-
+      console.log("formattedScores", formattedScores);
       const response = await fetch("/api/exam/saveResults", {
         method: "POST",
         headers: {

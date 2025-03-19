@@ -23,6 +23,8 @@ const {
   getGradeChangeLog,
   deleteMyExam,
   getExamQuestionDetailsById,
+  getStoredResource,
+  finalizeResource,
 } = require("../controllers/examController");
 const { createUploadMiddleware } = require("../middleware/uploadMiddleware");
 const { checkJwt, checkPermissions } = require("../auth0"); // Importing from auth.js
@@ -95,8 +97,8 @@ router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
   }
 });
 
-// Add this route to the examRoutes.js file
 
+// Get student scores stored in Flask OMR service for review
 router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
   try {
     const { exam_id } = req.body;
@@ -496,16 +498,6 @@ function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
     },
     outputs_configuration: {
       should_explain_scoring: true,
-      draw_score: {
-        enabled: true,
-        position: [600, 1100],
-        size: 1.5,
-      },
-      draw_answers_summary: {
-        enabled: true,
-        position: [300, 1200],
-        size: 1.0,
-      },
       draw_question_verdicts: {
         enabled: true,
         verdict_colors: {
@@ -530,26 +522,170 @@ function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
   };
 }
 
+// Helper function to get template for an exam
+async function getTemplateForExam(examId) {
+  try {
+    if (!examId) {
+      throw new Error("Missing exam ID");
+    }
+
+    // Query the database to get the template files
+    const query = "SELECT template_file FROM exam WHERE exam_id = $1";
+    const result = await pool.query(query, [examId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Exam not found");
+    }
+
+    const templateFiles = result.rows[0].template_file;
+    
+    if (!templateFiles) {
+      throw new Error("No template files found for this exam");
+    }
+
+    console.log("Template files type:", typeof templateFiles);
+    console.log("Template files structure:", JSON.stringify(templateFiles));
+
+    return templateFiles;
+  } catch (error) {
+    console.error("Error fetching template files:", error);
+    throw error;
+  }
+}
+
+// Helper function to get evaluation JSON for an exam
+async function getEvaluationJsonForExam(exam_id) {
+  exam_id = parseInt(exam_id, 10);
+  
+  if (isNaN(exam_id)) {
+    throw new Error("Invalid exam_id");
+  }
+
+  try {
+    // get exam question details by exam id
+    const examDetails = await getExamQuestionDetailsById(exam_id);
+    console.log("Exam details:", JSON.stringify(examDetails));
+    const { examType, totalQuestions } = examDetails;
+    
+    // get answer key and marking schemes
+    const answerKey = await getAnswerKeyForExam(exam_id);
+    
+    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
+    console.log("Custom marking schemes:", JSON.stringify(customMarkingSchemes));
+
+    const markingSchemes = {
+      DEFAULT: {
+        correct: "1",
+        incorrect: "0",
+        unmarked: "0",
+      },
+    };
+
+    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
+      markingSchemes[sectionName] = {
+        questions: scheme.questions,
+        marking: scheme.marking,
+      };
+    }
+
+    let response = {};
+
+    if (examType === "200mcq" || (examType === "custom" && totalQuestions > 100)) {
+      const firstHalfQuestions = answerKey.slice(0, 100);
+      const secondHalfQuestions = answerKey.slice(100);
+
+      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
+      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
+
+      response = {
+        page_1: evaluationJsonPage1,
+        page_2: evaluationJsonPage2
+      };
+    } else if (examType === "100mcq") {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } 
+    else if (examType === "custom" && totalQuestions <= 100) {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } else {
+      throw new Error("Invalid exam type.");
+    }
+
+    return response;
+  } catch (error) {
+    console.error("Error generating evaluation JSON:", error);
+    throw error;
+  }
+}
+
 // Call the OMR processing service
-router.post("/callOMR", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
+router.post("/callOMR/:examId", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   console.log("callOMR");
   try {
-    // get examId from the request body
-    const { examId } = req.body;
+    const examId = req.params.examId;
+    console.log("Extracted examId from URL:", examId);
+    
     if (!examId) {
       return res.status(400).json({ error: "Missing examId parameter" });
     }
     
+    // 获取模板和评估 JSON
+    console.log("Fetching template and evaluation JSON for exam:", examId);
+    let templates, evaluation_json;
+    
+    try {
+      templates = await getTemplateForExam(examId);
+      console.log("Templates fetched successfully");
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+      return res.status(500).json({ error: `Failed to fetch template: ${error.message}` });
+    }
+    
+    try {
+      evaluation_json = await getEvaluationJsonForExam(examId);
+      console.log("Evaluation JSON generated successfully");
+    } catch (error) {
+      console.error("Error generating evaluation JSON:", error);
+      return res.status(500).json({ error: `Failed to generate evaluation JSON: ${error.message}` });
+    }
+    
+    // 创建请求体
+    const requestBody = {
+      templates,
+      evaluation_json
+    };
+    
+    console.log("Sending request to OMR service with templates and evaluation_json");
+    
+    // 调用 OMR 处理服务
     const response = await fetch(`http://flaskomr:5000/process/${examId}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      body: JSON.stringify(requestBody)
     });
-    console.log("OMR Response: ", response);
-    res.send(JSON.stringify("OMR called successfully in /callOMR"));
+    
+    console.log("OMR Response: ", response.status, response.statusText);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OMR service returned status ${response.status}: ${errorText}`);
+    }
+    
+    const responseData = await response.json();
+    res.json({
+      message: "OMR processing started successfully",
+      details: responseData
+    });
   } catch (error) {
     console.error("Error calling OMR: ", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
@@ -643,115 +779,10 @@ router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function
   res.send(JSON.stringify("Test route called successfully"));
 });
 
-// Get template JSON files for a specific exam
-router.get("/getTemplate/:examId", async function (req, res) {
-  try {
-    const examId = req.params.examId;
-    if (!examId) {
-      return res.status(400).json({ error: "Missing exam ID" });
-    }
+// 获取已存储的资源（PDF和模板）
+router.get("/resource/:resourceId", checkJwt, getStoredResource);
 
-    // Query the database to get the template files
-    const query = "SELECT template_file FROM exam WHERE exam_id = $1";
-    const result = await pool.query(query, [examId]);
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: "Exam not found" });
-    }
-
-    const templateFiles = result.rows[0].template_file;
-    
-    if (!templateFiles || templateFiles.length === 0) {
-      return res.status(404).json({ error: "No template files found for this exam" });
-    }
-
-    // Create a combined template with page_1 and page_2 keys
-    const combinedTemplate = {};
-    
-    // Process template files
-    if (templateFiles.length === 1) {
-      // Single page template
-      combinedTemplate.page_1 = templateFiles[0];
-    } else if (templateFiles.length === 2) {
-      // Double page template
-      combinedTemplate.page_1 = templateFiles[0];
-      combinedTemplate.page_2 = templateFiles[1];
-    } else {
-      return res.status(500).json({ error: "Unexpected number of template files" });
-    }
-
-    return res.json(combinedTemplate);
-  } catch (error) {
-    console.error("Error fetching template files:", error);
-    return res.status(500).json({ error: "Failed to fetch template files" });
-  }
-});
-
-// new evaluation json route
-router.get("/getEvaluationJson/:exam_id", checkJwt, checkPermissions(["read:exam"]), async function (req, res) {
-  const exam_id = parseInt(req.params.exam_id, 10);
-  
-  if (isNaN(exam_id)) {
-    return res.status(400).json({ error: "Invalid exam_id" });
-  }
-
-  try {
-    // get exam question details by exam id
-    const examDetails = await getExamQuestionDetailsById(exam_id);
-    const { examType, totalQuestions } = examDetails;
-    
-    // get answer key and marking schemes
-    const answerKey = await getAnswerKeyForExam(exam_id);
-    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
-
-    const markingSchemes = {
-      DEFAULT: {
-        correct: "1",
-        incorrect: "0",
-        unmarked: "0",
-      },
-    };
-
-    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
-      markingSchemes[sectionName] = {
-        questions: scheme.questions,
-        marking: scheme.marking,
-      };
-    }
-
-    let response = {};
-
-    if (examType === "200mcq" || (examType === "custom" && totalQuestions > 100)) {
-      const firstHalfQuestions = answerKey.slice(0, 100);
-      const secondHalfQuestions = answerKey.slice(100);
-
-      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
-      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
-
-      response = {
-        page_1: evaluationJsonPage1,
-        page_2: evaluationJsonPage2
-      };
-    } else if (examType === "100mcq") {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-      response = {
-        page_1: evaluationJson
-      };
-    } 
-    else if (examType === "custom" && totalQuestions <= 100) {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-      response = {
-        page_1: evaluationJson
-      };
-    } else {
-      return res.status(400).json({ error: "Invalid exam type." });
-    }
-
-    return res.json(response);
-  } catch (error) {
-    console.error("Error in /getEvaluationJson:", error);
-    return res.status(500).json({ error: "Error generating evaluation JSON" });
-  }
-});
+// 最终化资源（将暂存资源与考试ID关联并永久保存）
+router.post("/finalizeResource", checkJwt, checkPermissions(['create:exam']), finalizeResource);
 
 module.exports = router;

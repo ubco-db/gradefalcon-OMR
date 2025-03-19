@@ -7,19 +7,110 @@ const { v4: uuidv4 } = require('uuid');
 // Template cache: in-memory storage for templates
 const templateCache = new Map();
 
-// Set expiration time (2 hours in milliseconds)
-const TEMPLATE_EXPIRATION = 2 * 60 * 60 * 1000;
+// File storage structure: key -> { template, pdfPath, timestamp, courseId, examTitle, classId, userId }
+const TEMPLATE_EXPIRATION = 2 * 60 * 60 * 1000; // 2小时过期时间
 
-// Clean up expired templates every 15 minutes
+// 清理过期模板和相关PDF文件
 setInterval(() => {
   const now = Date.now();
-  for (const [id, templateData] of templateCache.entries()) {
-    if (now - templateData.timestamp > TEMPLATE_EXPIRATION) {
+  for (const [id, resourceData] of templateCache.entries()) {
+    if (now - resourceData.timestamp > TEMPLATE_EXPIRATION) {
+      // 如果存在PDF文件，尝试删除它
+      if (resourceData.pdfPath && fs.existsSync(resourceData.pdfPath)) {
+        try {
+          fs.unlinkSync(resourceData.pdfPath);
+          console.log(`PDF file for template ${id} deleted from filesystem`);
+        } catch (err) {
+          console.error(`Failed to delete PDF file for template ${id}:`, err);
+        }
+      }
+      
       templateCache.delete(id);
-      console.log(`Template ${id} expired and removed from cache`);
+      console.log(`Template ${id} expired and removed from cache with associated resources`);
     }
   }
-}, 15 * 60 * 1000);
+}, 15 * 60 * 1000); // 每15分钟清理一次
+
+// 根据用户ID和考试信息获取或创建一个资源ID
+const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
+  // 检查是否已有此用户此考试的资源
+  for (const [id, data] of templateCache.entries()) {
+    if (data.userId === userId && 
+        data.courseId === courseId && 
+        data.examTitle === examTitle && 
+        data.classId === classId) {
+      return id; // 返回现有ID以覆盖
+    }
+  }
+  
+  // 没有找到现有资源，创建新ID
+  return uuidv4();
+};
+
+// 新方法：获取暂存的资源（模板和PDF）
+const getStoredResource = async (req, res) => {
+  const { resourceId } = req.params;
+  
+  if (!templateCache.has(resourceId)) {
+    return res.status(404).json({ message: "Resource not found or expired" });
+  }
+  
+  const resourceData = templateCache.get(resourceId);
+  
+  // 检查PDF文件是否存在
+  if (!resourceData.pdfPath || !fs.existsSync(resourceData.pdfPath)) {
+    return res.status(404).json({ message: "PDF file not found" });
+  }
+  
+  try {
+    // 设置响应头并发送PDF文件
+    res.setHeader('Content-Disposition', `attachment; filename="${path.basename(resourceData.pdfPath)}"`);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('X-Template-Data', JSON.stringify(resourceData.template)); // 在响应头中包含模板数据
+    
+    const pdfStream = fs.createReadStream(resourceData.pdfPath);
+    pdfStream.pipe(res);
+    
+    // 记录访问但不删除资源，允许多次下载
+    resourceData.lastAccessed = Date.now();
+    templateCache.set(resourceId, resourceData);
+  } catch (error) {
+    console.error('Error serving stored resource:', error);
+    res.status(500).json({ message: "Error retrieving resource" });
+  }
+};
+
+// 新方法：使用资源ID保存考试后，清理暂存资源
+const finalizeResource = async (req, res) => {
+  const { resourceId, examId } = req.body;
+  
+  if (!templateCache.has(resourceId)) {
+    return res.status(404).json({ message: "Resource not found or expired" });
+  }
+  
+  try {
+    const resourceData = templateCache.get(resourceId);
+    
+    // 获取目标位置
+    const targetDir = path.join(__dirname, `../assets/exams/exam_${examId}`);
+    ensureDirectoryExistence(targetDir);
+    
+    // 复制PDF文件到最终位置
+    const targetPdfPath = path.join(targetDir, `template_${examId}.pdf`);
+    fs.copyFileSync(resourceData.pdfPath, targetPdfPath);
+    
+    // 从缓存中删除资源（但保留原始文件直到下一次清理）
+    templateCache.delete(resourceId);
+    
+    res.status(200).json({ 
+      message: "Resource finalized successfully",
+      pdfPath: targetPdfPath
+    });
+  } catch (error) {
+    console.error('Error finalizing resource:', error);
+    res.status(500).json({ message: "Error finalizing resource" });
+  }
+};
 
 const saveQuestions = async (req, res, next) => {
   const { questions, classID, examTitle, numQuestions, totalMarks, markingSchemes, template, canViewExam, canViewAnswers, templateId } = req.body;
@@ -38,27 +129,30 @@ const saveQuestions = async (req, res, next) => {
   });
 
   // Determine template source - from cache or provided in request
-  var templateFile;
+  var templateFile = null;
   
   if (templateId && templateCache.has(templateId)) {
     // Get template from cache
-    templateFile = JSON.stringify(templateCache.get(templateId).template);
+    const templateData = templateCache.get(templateId).template.pages;
+    // Convert to JSON string - pages object is sufficient for JSONB type
+    templateFile = JSON.stringify(templateData);
+    console.log("templateFile", templateFile);
     console.log(`Retrieved template ${templateId} from cache`);
-    
+    // TODO: templateId also contains pdf path, can save the pdf template to database
     // Remove from cache after retrieval
-    templateCache.delete(templateId);
-    console.log(`Deleted template ${templateId} from cache after retrieval`);
   } else if (templateId) {
     console.log(`Template ID ${templateId} provided but not found in cache`);
+  } else {
+    console.log(`No templateId provided, using template directly from request`);
   }
 
   try {
     // Create options object
     const options = JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers });
     
-    // Insert into exam table
+    // Insert into exam table - change from JSONB[] to JSONB
     const writeToExam = await pool.query(
-      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, template, template_file,viewing_options) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING exam_id",
+      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6::JSONB, $7) RETURNING exam_id",
       [classID, examTitle, numQuestions, totalMarks, template, templateFile, options]
     );
     
@@ -66,7 +160,7 @@ const saveQuestions = async (req, res, next) => {
 
     const writeToSolution = await pool.query("INSERT INTO solution (exam_id, answers, marking_schemes) VALUES ($1, $2, $3)", [
       insertedRowId,
-      JSON.stringify(questionsArray),
+      JSON.stringify(questions),
       JSON.stringify(markingSchemes),
     ]);
 
@@ -376,13 +470,11 @@ const saveResults = async (req, res, next) => {
       // If chosen_answers is not present, extract q* fields
       if (!chosen_answers) {
         chosen_answers = {};
-        Object.keys(student).forEach(key => {
-          if (key.startsWith('q') && student[key] && student[key].trim() !== '') {
-            chosen_answers[key] = student[key];
-          }
-        });
       }
-      
+      let questionFields = Object.keys(chosen_answers)
+          .filter((key) => key.startsWith("q") && chosen_answers[key].trim() !== "")
+          .map((key) => ({ [key]: chosen_answers[key] }));
+      questionFields = JSON.stringify(questionFields);
       // Handle image_uuids
       const image_uuids = student.image_uuids || {};
       
@@ -394,17 +486,17 @@ const saveResults = async (req, res, next) => {
         // Update existing record
         const updateQuery = `
           UPDATE studentResults 
-          SET grade = $1, chosen_answers = $2, image_uuids = $3, updated_at = NOW()
+          SET grade = $1, chosen_answers = $2, image_uuids = $3
           WHERE student_id = $4 AND exam_id = $5
         `;
-        await pool.query(updateQuery, [grade, chosen_answers, image_uuids, student_id, exam_id]);
+        await pool.query(updateQuery, [grade, questionFields, image_uuids, student_id, exam_id]);
       } else {
         // Insert new record
         const insertQuery = `
-          INSERT INTO studentResults (student_id, exam_id, grade, chosen_answers, image_uuids, created_at, updated_at)
-          VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+          INSERT INTO studentResults (student_id, exam_id, grade, chosen_answers, image_uuids)
+          VALUES ($1, $2, $3, $4, $5)
         `;
-        await pool.query(insertQuery, [student_id, exam_id, grade, chosen_answers, image_uuids]);
+        await pool.query(insertQuery, [student_id, exam_id, grade, questionFields, image_uuids]);
       }
     }
     
@@ -427,9 +519,9 @@ const ensureDirectoryExistence = (dirPath) => {
 async function getCustomMarkingSchemes(exam_id) {
   const result = await pool.query("SELECT marking_schemes FROM solution WHERE exam_id = $1", [exam_id]);
 
-  if (result.rows.length === 0) {
-    throw new Error(`No marking schemes found for exam_id ${exam_id}`);
-  }
+    if (result.rows.length === 0) {
+      throw new Error(`No marking schemes found for exam_id ${exam_id}`);
+    }
 
   const customMarkingSchemes = result.rows[0].marking_schemes;
 
@@ -448,11 +540,9 @@ async function getCustomMarkingSchemes(exam_id) {
   return transformedSchemes;
 }
 
-
-
-
 async function generateCustomBubbleSheet(req, res) {
   const { numQuestions, numOptions, courseId, examTitle, classId } = req.body;
+  const userId = req.auth?.sub; // 获取请求者的用户ID
 
   if (!numQuestions || !numOptions || !courseId || !examTitle || !classId) {
     return res.status(400).send("Missing required parameters");
@@ -460,7 +550,7 @@ async function generateCustomBubbleSheet(req, res) {
 
   try {
     // 创建输出目录（如果不存在）
-    const outputDir = path.join(__dirname, '../assets/custom', `${courseId}`);
+    const outputDir = path.join(__dirname, '../assets/custom');
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
@@ -484,16 +574,10 @@ async function generateCustomBubbleSheet(req, res) {
 
     // 生成JSON模板并存储在缓存中
     const jsonTemplate = await generateCustomJsonTemplate(numQuestions, courseId, examTitle, classId, structuredPositions);
-    const templateId = uuidv4();
     
-    // 存储在缓存中并添加时间戳
-    templateCache.set(templateId, {
-      template: jsonTemplate,
-      timestamp: Date.now()
-    });
+    // 检查该用户是否已有该考试的资源存在，如果有则覆盖
+    const templateId = getResourceIdForUser(userId, courseId, examTitle, classId);
     
-    console.log(`Template ${templateId} stored in cache`);
-
     // 编译LaTeX文件生成PDF
     exec(`pdflatex -output-directory=${outputDir} ${latexFilePath}`, (error, stdout, stderr) => {
       if (error) {
@@ -501,10 +585,23 @@ async function generateCustomBubbleSheet(req, res) {
         return res.status(500).send("Failed to generate PDF.");
       }
 
+      // 存储在缓存中并添加时间戳和其他元数据
+      templateCache.set(templateId, {
+        template: jsonTemplate,
+        pdfPath: pdfFilePath,
+        timestamp: Date.now(),
+        courseId,
+        examTitle,
+        classId,
+        userId
+      });
+      
+      console.log(`Template and PDF ${templateId} stored in cache`);
+
       // 设置响应头并流式传输PDF文件
       res.setHeader('Content-Disposition', `attachment; filename="${randomFileName}.pdf"`);
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('X-Template-ID', templateId); // 在响应头中包含模板ID
+      res.setHeader('X-Resource-ID', templateId); // 在响应头中包含资源ID
       const pdfStream = fs.createReadStream(pdfFilePath);
       pdfStream.pipe(res);
 
@@ -769,7 +866,6 @@ module.exports = {
   getAveragePerExam,
   getAveragePerCourse,
   getStudentGrades,
-  getAnswerKeyForExam,
   getStudentNameById,
   getScoreByExamId,
   saveResults,
@@ -787,4 +883,6 @@ module.exports = {
   getGradeChangeLog,
   deleteMyExam,
   getExamQuestionDetailsById,
+  getStoredResource,
+  finalizeResource,
 };
