@@ -76,9 +76,9 @@ const displayClassManagement = async (req, res, next) => {
       class_id,
     ]);
     const classData = result.rows;
-
+    // Only get exams of the current class
     const examResults = classData.map((student) =>
-      pool.query("SELECT exam_id, grade FROM studentResults WHERE student_id = $1", [student.student_id]).then((result) => ({
+      pool.query("SELECT exam_id, grade FROM studentResults NATURAL JOIN exam WHERE student_id = $1 AND class_id = $2", [student.student_id, class_id]).then((result) => ({
         student_id: student.student_id,
         name: student.name,
         exams: result.rows, // This will be an array of exam results
@@ -155,8 +155,7 @@ const importClass = async (req, res) => {
         auth0User = existingUsersResponse.data[0];
         if (!auth0User) return null;
       }
-
-      const studentQuery = await pool.query("SELECT * FROM student WHERE student_id = $1", [student.studentID]);
+      const studentQuery = await pool.query("SELECT * FROM student WHERE student_id = $1::text", [student.studentID]);
       if (studentQuery.rows.length === 0) {
         await pool.query("INSERT INTO student (student_id, auth0_id, email, name) VALUES ($1, $2, $3, $4)", [
           student.studentID,
