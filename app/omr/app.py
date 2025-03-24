@@ -5,12 +5,102 @@ import shutil
 import csv
 import json
 import uuid
+import time
+import datetime
+import threading
 from pdf_to_images import pdf_to_images
 from cassandra_client import CassandraClient
 import requests
 
 app = Flask(__name__)
 cassandra_client = CassandraClient()
+
+# Folder expiration time tracking
+EXPIRY_RECORD_FILE = 'folder_expiry_times.json'
+DEFAULT_EXPIRY_DAYS = 30
+SUCCESS_EXPIRY_HOURS = 2
+
+# Load expiry time records
+def load_expiry_records():
+    if os.path.exists(EXPIRY_RECORD_FILE):
+        try:
+            with open(EXPIRY_RECORD_FILE, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            app.logger.error(f"Error loading expiry time record file: {e}")
+    return {}
+
+# Save expiry time records
+def save_expiry_records(records):
+    try:
+        with open(EXPIRY_RECORD_FILE, 'w') as f:
+            json.dump(records, f, indent=2)
+    except Exception as e:
+        app.logger.error(f"Error saving expiry time record file: {e}")
+
+# Set folder expiry time
+def set_folder_expiry(exam_id, hours=None):
+    records = load_expiry_records()
+    
+    # If time not specified, use default 30 days
+    if hours is None:
+        expiry_time = time.time() + (DEFAULT_EXPIRY_DAYS * 24 * 60 * 60)
+    else:
+        expiry_time = time.time() + (hours * 60 * 60)
+    
+    # Update record
+    records[exam_id] = {
+        'created_at': time.time(),
+        'expires_at': expiry_time,
+        'expiry_date': datetime.datetime.fromtimestamp(expiry_time).strftime('%Y-%m-%d %H:%M:%S')
+    }
+    
+    save_expiry_records(records)
+    app.logger.info(f"Set expiry time for exam_id {exam_id} to {records[exam_id]['expiry_date']}")
+
+# Clean up expired folders
+def cleanup_expired_folders():
+    records = load_expiry_records()
+    current_time = time.time()
+    updated = False
+    
+    # Check and clean up expired folders
+    for exam_id, info in list(records.items()):
+        if info['expires_at'] < current_time:
+            try:
+                # Delete input folder
+                input_dir = os.path.join("./inputs", exam_id)
+                if os.path.exists(input_dir):
+                    shutil.rmtree(input_dir)
+                    app.logger.info(f"Deleted expired input folder: {input_dir}")
+                
+                # Delete output folder
+                output_dir = os.path.join("./outputs", exam_id)
+                if os.path.exists(output_dir):
+                    shutil.rmtree(output_dir)
+                    app.logger.info(f"Deleted expired output folder: {output_dir}")
+                
+                # Remove from records
+                del records[exam_id]
+                updated = True
+                
+            except Exception as e:
+                app.logger.error(f"Error cleaning up expired folder {exam_id}: {e}")
+    
+    # If updated, save records
+    if updated:
+        save_expiry_records(records)
+
+# Run cleanup task periodically
+def schedule_cleanup():
+    cleanup_expired_folders()
+    # Run cleanup every hour
+    threading.Timer(60 * 60, schedule_cleanup).start()
+
+# Start cleanup task when application starts
+@app.before_first_request
+def start_cleanup_scheduler():
+    schedule_cleanup()
 
 # To run the demo please run "docker cp src/assets/template.json app-backend-1:/code/omr/inputs/template.json". We are currently working to automate the process.
 
@@ -56,32 +146,32 @@ def save_evaluation(input_dir, evaluation_json):
     try:
 
         
-        # 保存page_1评估JSON
+        # Save page_1 evaluation JSON
         if "page_1" in evaluation_json:
             page1_dir = os.path.join(input_dir, "page_1")
             os.makedirs(page1_dir, exist_ok=True)
             
             with open(os.path.join(page1_dir, "evaluation.json"), 'w') as f:
                 json.dump(evaluation_json["page_1"], f, indent=2)
-            app.logger.info(f"save page_1 evaluation json to {page1_dir}/evaluation.json")
+            app.logger.info(f"Saved page_1 evaluation json to {page1_dir}/evaluation.json")
         
-        # 如果存在，保存page_2评估JSON
+        # Save page_2 evaluation JSON if exists
         if "page_2" in evaluation_json:
             page2_dir = os.path.join(input_dir, "page_2")
             os.makedirs(page2_dir, exist_ok=True)
             
             with open(os.path.join(page2_dir, "evaluation.json"), 'w') as f:
                 json.dump(evaluation_json["page_2"], f, indent=2)
-            app.logger.info(f"save page_2 evaluation json to {page2_dir}/evaluation.json")
+            app.logger.info(f"Saved page_2 evaluation json to {page2_dir}/evaluation.json")
         
         return True
     
     except Exception as e:
-        app.logger.error(f"get and save evaluation json error: {str(e)}")
+        app.logger.error(f"Error fetching and saving evaluation json: {str(e)}")
         return False
 
 def save_config(input_dir):
-    """保存OMR处理配置到input目录"""
+    """Save OMR processing configuration to input directory"""
     try:
         config = {
             "outputs": {
@@ -95,11 +185,11 @@ def save_config(input_dir):
         config_path = os.path.join(input_dir, "config.json")
         with open(config_path, 'w') as f:
             json.dump(config, f, indent=2)
-        app.logger.info(f"配置文件已保存至 {config_path}")
+        app.logger.info(f"Configuration file saved to {config_path}")
         return True
         
     except Exception as e:
-        app.logger.error(f"保存配置文件出错: {str(e)}")
+        app.logger.error(f"Error saving configuration file: {str(e)}")
         return False
 
 @app.route('/process/<exam_id>', methods=['POST'])
@@ -110,7 +200,7 @@ def process_omr(exam_id):
     if not exam_id:
         return jsonify({"error": "Invalid examId parameter"}), 400
     
-    # 获取请求体中的模板和评估数据
+    # Get template and evaluation data from request body
     data = request.get_json()
     if not data:
         return jsonify({"error": "Request body is required with templates and evaluation_json"}), 400
@@ -133,6 +223,9 @@ def process_omr(exam_id):
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
     
+    # Set default 30 days expiry time
+    set_folder_expiry(exam_id)
+    
     # Fetch and save template files
     if not save_template(input_dir, templates):
         return jsonify({"error": "Failed to fetch template files"}), 500
@@ -141,7 +234,7 @@ def process_omr(exam_id):
     if not save_evaluation(input_dir, evaluation_json):
         return jsonify({"error": "Failed to fetch evaluation JSON files"}), 500
         
-    # 保存OMR处理配置
+    # Save OMR processing configuration
     if not save_config(input_dir):
         return jsonify({"error": "Failed to save config file"}), 500
     
@@ -167,6 +260,9 @@ def process_omr(exam_id):
         app.logger.info(f"Starting to process results and store images for exam_id: {exam_id}")
         process_results_and_store_images(exam_id)
         app.logger.info(f"Completed processing results and storing images for exam_id: {exam_id}")
+        
+        # Process success, update expiry time to 2 hours later
+        set_folder_expiry(exam_id, SUCCESS_EXPIRY_HOURS)
 
         return jsonify({"output": result.stdout}), 200
     
@@ -189,12 +285,12 @@ def process_results_and_store_images(exam_id):
     page1_dir = os.path.join(out_dir, "page_1")
     page2_dir = os.path.join(out_dir, "page_2")
     
-    # 检查输出目录是否存在
+    # Check if output directory exists
     if not os.path.exists(page1_dir):
-        app.logger.error(f"结果目录不存在: {page1_dir}")
+        app.logger.error(f"Result directory does not exist: {page1_dir}")
         return
         
-    # 初始化 Cassandra 客户端
+    # Initialize Cassandra client
     if not cassandra_client.connected:
         cassandra_client.connect()
     
@@ -246,7 +342,7 @@ def process_results_and_store_images(exam_id):
             for file in files:
                 if file.startswith("Results") and file.endswith(".csv"):
                     results_file_path = os.path.join(root, file)
-                    app.logger.info(f"找到 page_2 结果文件: {results_file_path}")
+                    app.logger.info(f"Found page_2 result file: {results_file_path}")
                     page2_results_file = results_file_path
                     break
                     
@@ -293,7 +389,7 @@ def process_results_and_store_images(exam_id):
             if os.path.exists(front_results_path):
                 front_results_uuid = cassandra_client.store_image(front_results_path)
         except Exception as e:
-            app.logger.error(f"存储 page_1 图像出错: {e}")
+            app.logger.error(f"Error storing page_1 images: {e}")
         
         # create student result
         student_result = {
@@ -308,29 +404,29 @@ def process_results_and_store_images(exam_id):
             "chosen_answers": {}
         }
         
-        # 添加 page_1 答案
+        # Add page_1 answers
         for key, value in p1_row.items():
             if key.startswith('q') and value.strip():
                 student_result["chosen_answers"][key] = value
         
-        # 如果有 page_2 数据，查找匹配的行
+        # If page_2 data exists, find matching row
         if has_page2 and page2_results:
-            # 根据文件 ID 查找匹配的 page_2 行
+            # Find matching page_2 row based on file ID
             matching_p2_row = None
             
             for p2_row in page2_results:
-                # 尝试通过 StudentID 匹配
+                # Try to match by StudentID
                 if 'StudentID' in p2_row and p2_row['StudentID'] == student_id:
                     matching_p2_row = p2_row
                     break
                 
-                # 如果没有 StudentID，尝试通过 file_id 匹配
+                # If no StudentID, try to match by file_id
                 if 'file_id' in p2_row and 'file_id' in p1_row and p2_row['file_id'] == p1_row['file_id']:
                     matching_p2_row = p2_row
                     break
             
             if matching_p2_row:
-                # 存储 page_2 图像
+                # store page_2 images
                 back_original_path = os.path.join(input_dir, "page_2", matching_p2_row['file_id'])
                 back_results_path = os.path.join(page2_dir, "CheckedOMRs/colored", matching_p2_row['file_id'])
                 
@@ -344,15 +440,15 @@ def process_results_and_store_images(exam_id):
                     if os.path.exists(back_results_path):
                         back_results_uuid = cassandra_client.store_image(back_results_path)
                 except Exception as e:
-                    app.logger.error(f"存储 page_2 图像出错: {e}")
+                    app.logger.error(f"Error storing page_2 images: {e}")
                 
-                # 添加 page_2 图像 UUIDs
+                # Add page_2 image UUIDs
                 student_result["image_uuids"]["page2"] = {
                     "original": back_original_uuid,
                     "results": back_results_uuid
                 }
                 
-                # 计算总分
+                # Calculate total score
                 try:
                     p1_score = float(student_result["Score"]) if student_result["Score"] else 0
                     p2_score = float(matching_p2_row.get("score", "0")) if matching_p2_row.get("score") else 0
@@ -360,28 +456,28 @@ def process_results_and_store_images(exam_id):
                     total_score = p1_score + p2_score
                     student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
                 except (ValueError, TypeError) as e:
-                    app.logger.error(f"计算总分出错: {e}")
+                    app.logger.error(f"Error calculating total score: {e}")
                 
-                # 添加 page_2 答案
+                # Add page_2 answers
                 for key, value in matching_p2_row.items():
                     if key.startswith('q') and value.strip():
                         if key in student_result["chosen_answers"]:
-                            # 这是页面 2 上的重复问题，重命名为 page2_q*
+                            # This is a duplicate question on page 2, rename to page2_q*
                             new_key = f"page2_{key}"
                             student_result["chosen_answers"][new_key] = value
                         else:
-                            # 这是新问题
+                            # This is a new question
                             student_result["chosen_answers"][key] = value
         
-        # 将学生结果添加到列表
+        # Add student result to list
         student_results_list.append(student_result)
     
-    # 保存合并结果到文件
+    # Save merged results to file
     student_results_path = os.path.join(out_dir, "student_results.json")
     with open(student_results_path, 'w') as f:
         json.dump(student_results_list, f, indent=2)
     
-    app.logger.info(f"保存了 {len(student_results_list)} 个学生结果到 {student_results_path}")
+    app.logger.info(f"Saved {len(student_results_list)} student results to {student_results_path}")
     return student_results_list
 
 @app.route('/student_scores', methods=['GET'])
@@ -440,6 +536,9 @@ def split_pdf():
         os.makedirs(input_dir, exist_ok=True)
         os.makedirs(output_dir, exist_ok=True)
         
+        # Set default 30 days expiry time
+        set_folder_expiry(exam_id)
+        
         # save uploaded pdf file
         pdf_path = os.path.join(input_dir, "exam.pdf")
         pdf_file.save(pdf_path)
@@ -447,15 +546,15 @@ def split_pdf():
         
         # process pdf file
         try:
-            # 调用 pdf_to_images 并获取返回结果
+            # call pdf_to_images and get return result
             results = pdf_to_images(input_dir, input_dir, double_pages=double_side)
             
-            # 检查处理是否成功
+            # check if processing succeeded
             if not results["success"]:
                 app.logger.error(f"PDF processing failed: {results['error']}")
                 return jsonify({"error": f"PDF processing failed: {results['error']}"}), 500
             
-            # 检查是否生成了图片文件
+            # check if images were generated
             page_1_dir = os.path.join(input_dir, "page_1")
             has_images = False
             
@@ -465,6 +564,9 @@ def split_pdf():
             
             if not has_images:
                 return jsonify({"error": "PDF processing completed but no images were generated"}), 500
+            
+            # Process success, update expiry time to 2 hours later
+            set_folder_expiry(exam_id, SUCCESS_EXPIRY_HOURS)
             
             response_data = {
                 "message": "PDF processed successfully",
