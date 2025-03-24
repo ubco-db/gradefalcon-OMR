@@ -22,6 +22,7 @@ CREATE TABLE instructor (
     name text not null
 );
 
+-- TODO: add term information, remove unique constraint
 CREATE TABLE classes (
     class_id serial primary key,
     instructor_id text,

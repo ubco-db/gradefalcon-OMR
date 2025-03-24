@@ -3,19 +3,20 @@ const fs = require("fs");
 const path = require("path");
 const { exec } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
+const fetch = require('node-fetch');
 
 // Template cache: in-memory storage for templates
 const templateCache = new Map();
 
 // File storage structure: key -> { template, pdfPath, timestamp, courseId, examTitle, classId, userId }
-const TEMPLATE_EXPIRATION = 2 * 60 * 60 * 1000; // 2小时过期时间
+const TEMPLATE_EXPIRATION = 2 * 60 * 60 * 1000; // 2 hours expiration time
 
-// 清理过期模板和相关PDF文件
+// Clean up expired templates and related PDF files
 setInterval(() => {
   const now = Date.now();
   for (const [id, resourceData] of templateCache.entries()) {
     if (now - resourceData.timestamp > TEMPLATE_EXPIRATION) {
-      // 如果存在PDF文件，尝试删除它
+      // If PDF file exists, try to delete it
       if (resourceData.pdfPath && fs.existsSync(resourceData.pdfPath)) {
         try {
           fs.unlinkSync(resourceData.pdfPath);
@@ -29,25 +30,25 @@ setInterval(() => {
       console.log(`Template ${id} expired and removed from cache with associated resources`);
     }
   }
-}, 15 * 60 * 1000); // 每15分钟清理一次
+}, 15 * 60 * 1000); // Clean up every 15 minutes
 
-// 根据用户ID和考试信息获取或创建一个资源ID
+// Get or create a resource ID based on user ID and exam information
 const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
-  // 检查是否已有此用户此考试的资源
+  // Check if a resource already exists for this user and exam
   for (const [id, data] of templateCache.entries()) {
     if (data.userId === userId &&
         data.courseId === courseId &&
         data.examTitle === examTitle &&
         data.classId === classId) {
-      return id; // 返回现有ID以覆盖
+      return id; // Return existing ID to override
     }
   }
 
-  // 没有找到现有资源，创建新ID
+  // No existing resource found, create a new ID
   return uuidv4();
 };
 
-// 新方法：获取暂存的资源（模板和PDF）
+// New method: Get stored resource (template and PDF)
 const getStoredResource = async (req, res) => {
   const { resourceId } = req.params;
 
@@ -57,21 +58,21 @@ const getStoredResource = async (req, res) => {
 
   const resourceData = templateCache.get(resourceId);
 
-  // 检查PDF文件是否存在
+  // Check if PDF file exists
   if (!resourceData.pdfPath || !fs.existsSync(resourceData.pdfPath)) {
     return res.status(404).json({ message: "PDF file not found" });
   }
 
   try {
-    // 设置响应头并发送PDF文件
+    // Set response headers and send PDF file
     res.setHeader('Content-Disposition', `attachment; filename="${path.basename(resourceData.pdfPath)}"`);
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('X-Template-Data', JSON.stringify(resourceData.template)); // 在响应头中包含模板数据
+    res.setHeader('X-Template-Data', JSON.stringify(resourceData.template)); // Include template data in response header
 
     const pdfStream = fs.createReadStream(resourceData.pdfPath);
     pdfStream.pipe(res);
 
-    // 记录访问但不删除资源，允许多次下载
+    // Log access but don't delete resource, allowing multiple downloads
     resourceData.lastAccessed = Date.now();
     templateCache.set(resourceId, resourceData);
   } catch (error) {
@@ -80,7 +81,7 @@ const getStoredResource = async (req, res) => {
   }
 };
 
-// 新方法：使用资源ID保存考试后，清理暂存资源
+// New method: Finalize stored resource after exam is saved, clean up temporary resource
 const finalizeResource = async (req, res) => {
   const { resourceId, examId } = req.body;
 
@@ -91,16 +92,13 @@ const finalizeResource = async (req, res) => {
   try {
     const resourceData = templateCache.get(resourceId);
 
-    // 获取目标位置
+    // Get target location
     const targetDir = path.join(__dirname, `../assets/exams/exam_${examId}`);
     ensureDirectoryExistence(targetDir);
 
-    // 复制PDF文件到最终位置
+    // Copy PDF file to final location
     const targetPdfPath = path.join(targetDir, `template_${examId}.pdf`);
     fs.copyFileSync(resourceData.pdfPath, targetPdfPath);
-
-    // 从缓存中删除资源（但保留原始文件直到下一次清理）
-    templateCache.delete(resourceId);
 
     res.status(200).json({
       message: "Resource finalized successfully",
@@ -147,18 +145,21 @@ const saveQuestions = async (req, res, next) => {
     console.log(`No templateId provided, using template directly from request`);
   }
 
+  // Ensure examMaxAppeals has a valid value (handle both null and undefined)
+  const maxAppeals = examMaxAppeals === null || examMaxAppeals === undefined ? 3 : examMaxAppeals;
+  
   try {
     // Create options object
     const options = JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers });
 
-    // Insert into exam table - change from JSONB[] to JSONB
-    // also have the check in db
-    if (examMaxAppeals <= 0) {
+    // Check if maxAppeals is valid
+    if (maxAppeals <= 0) {
         return res.status(400).json({ message: "Max exam appeals must be greater than 0." });
     }
+    
     const writeToExam = await pool.query(
-      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, exam_max_appeals, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6::JSONB, $7) RETURNING exam_id",
-      [classID, examTitle, numQuestions, totalMarks, examMaxAppeals, template, templateFile, options]
+      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, exam_max_appeals, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, $8) RETURNING exam_id",
+      [classID, examTitle, numQuestions, totalMarks, maxAppeals, template, templateFile, options]
     );
 
     const insertedRowId = writeToExam.rows[0].exam_id;
@@ -471,15 +472,11 @@ const saveResults = async (req, res, next) => {
 
       // Handle chosen_answers - could be nested or flat
       let chosen_answers = student.chosen_answers;
-
+      console.log("chosen_answers", chosen_answers);
       // If chosen_answers is not present, extract q* fields
       if (!chosen_answers) {
         chosen_answers = {};
       }
-      let questionFields = Object.keys(chosen_answers)
-          .filter((key) => key.startsWith("q") && chosen_answers[key].trim() !== "")
-          .map((key) => ({ [key]: chosen_answers[key] }));
-      questionFields = JSON.stringify(questionFields);
       // Handle image_uuids
       const image_uuids = student.image_uuids || {};
 
@@ -494,14 +491,14 @@ const saveResults = async (req, res, next) => {
           SET grade = $1, chosen_answers = $2, image_uuids = $3
           WHERE student_id = $4 AND exam_id = $5
         `;
-        await pool.query(updateQuery, [grade, questionFields, image_uuids, student_id, exam_id]);
+        await pool.query(updateQuery, [grade, JSON.stringify(chosen_answers), image_uuids, student_id, exam_id]);
       } else {
         // Insert new record
         const insertQuery = `
           INSERT INTO studentResults (student_id, exam_id, grade, chosen_answers, image_uuids)
           VALUES ($1, $2, $3, $4, $5)
         `;
-        await pool.query(insertQuery, [student_id, exam_id, grade, questionFields, image_uuids]);
+        await pool.query(insertQuery, [student_id, exam_id, grade, JSON.stringify(chosen_answers), image_uuids]);
       }
     }
 
@@ -547,50 +544,50 @@ async function getCustomMarkingSchemes(exam_id) {
 
 async function generateCustomBubbleSheet(req, res) {
   const { numQuestions, numOptions, courseId, examTitle, classId } = req.body;
-  const userId = req.auth?.sub; // 获取请求者的用户ID
+  const userId = req.auth?.sub; // Get the user ID of the requester
 
   if (!numQuestions || !numOptions || !courseId || !examTitle || !classId) {
     return res.status(400).send("Missing required parameters");
   }
 
   try {
-    // 创建输出目录（如果不存在）
+    // Create output directory (if it doesn't exist)
     const outputDir = path.join(__dirname, '../assets/custom');
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    // 导入templateGenerator中的函数
+    // Import functions from templateGenerator
     const { calculateQuestionDistribution, generateLatexDocument, generateCustomJsonTemplate } = require('../utils/templateGenerator');
     const { LAYOUT_PARAMS } = require('../utils/templateConstants');
 
-    // 生成随机文件名
+    // Generate random file name
     const randomFileName = `template_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
     const latexFilePath = path.join(outputDir, `${randomFileName}.tex`);
     const pdfFilePath = path.join(outputDir, `${randomFileName}.pdf`);
 
-    // 计算题目分布
+    // Calculate question distribution
     const { usedCommandTypes, structuredPositions } = calculateQuestionDistribution(numQuestions, numOptions, LAYOUT_PARAMS);
-    usedCommandTypes.add('placeQuestionAt'); // 确保始终包含placeQuestionAt命令
+    usedCommandTypes.add('placeQuestionAt'); // Ensure placeQuestionAt command is always included
 
-    // 生成LaTeX文档
+    // Generate LaTeX document
     const latexDocument = await generateLatexDocument(structuredPositions, usedCommandTypes, courseId, examTitle, classId);
     fs.writeFileSync(latexFilePath, latexDocument);
 
-    // 生成JSON模板并存储在缓存中
+    // Generate JSON template and store in cache
     const jsonTemplate = await generateCustomJsonTemplate(numQuestions, courseId, examTitle, classId, structuredPositions);
 
-    // 检查该用户是否已有该考试的资源存在，如果有则覆盖
+    // Check if the user already has a resource for this exam, if so, override it
     const templateId = getResourceIdForUser(userId, courseId, examTitle, classId);
 
-    // 编译LaTeX文件生成PDF
+    // Compile LaTeX file to generate PDF
     exec(`pdflatex -output-directory=${outputDir} ${latexFilePath}`, (error, stdout, stderr) => {
       if (error) {
         console.error('Error compiling LaTeX:', stderr);
         return res.status(500).send("Failed to generate PDF.");
       }
 
-      // 存储在缓存中并添加时间戳和其他元数据
+      // Store in cache with timestamp and other metadata
       templateCache.set(templateId, {
         template: jsonTemplate,
         pdfPath: pdfFilePath,
@@ -603,16 +600,16 @@ async function generateCustomBubbleSheet(req, res) {
 
       console.log(`Template and PDF ${templateId} stored in cache`);
 
-      // 设置响应头并流式传输PDF文件
+      // Set response headers and stream the PDF file
       res.setHeader('Content-Disposition', `attachment; filename="${randomFileName}.pdf"`);
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('X-Resource-ID', templateId); // 在响应头中包含资源ID
+      res.setHeader('X-Resource-ID', templateId); // Include resource ID in response header
       const pdfStream = fs.createReadStream(pdfFilePath);
       pdfStream.pipe(res);
 
-      // 在PDF发送后清理辅助文件
+      // Clean up auxiliary files after PDF is sent
       pdfStream.on('close', () => {
-        // 清理生成的辅助文件
+        // Clean up generated auxiliary files
         const auxFilePath = path.join(outputDir, `${randomFileName}.aux`);
         const logFilePath = path.join(outputDir, `${randomFileName}.log`);
 
@@ -690,6 +687,7 @@ const getExamDetails = async (req, res, next) => {
 
     ExamDetails.questionStats = questionStats;
     res.json(ExamDetails);
+    console.log("ExamDetails", ExamDetails);
   } catch (error) {
     console.error("Error fetching exam details:", error);
     res.status(500).json({ message: "Failed to fetch exam details" });
@@ -881,6 +879,208 @@ const deleteMyExam = async (req, res, next) => {
   }
 };
 
+const getStudentScores = async (req, res, next) => {
+  try {
+    const { exam_id } = req.body;
+
+    if (!exam_id) {
+      return res.status(400).json({ error: "Missing exam_id" });
+    }
+
+    // Fetch student scores directly from the OMR service
+    const response = await fetch(`http://flaskomr:5000/student_scores?examId=${exam_id}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`OMR service returned status: ${response.status}`);
+    }
+    
+    const studentScores = await response.json();
+    
+    // Fetch image UUIDs for each student from the database
+    const resultsWithNamesAndImages = await Promise.all(
+      studentScores.map(async (result) => {
+        const studentName = await getStudentNameById(result.StudentID);
+        
+        // Try to fetch image UUIDs from the database
+        try {
+          const query = `
+            SELECT image_uuids
+            FROM studentResults
+            WHERE exam_id = $1 AND student_id = $2
+          `;
+          
+          const dbResult = await pool.query(query, [exam_id, result.StudentID]);
+          
+          if (dbResult.rows.length > 0 && dbResult.rows[0].image_uuids) {
+            return { 
+              StudentName: studentName, 
+              ...result, 
+              image_uuids: dbResult.rows[0].image_uuids 
+            };
+          }
+        } catch (dbError) {
+          console.error(`Error fetching image UUIDs for student ${result.StudentID}:`, dbError);
+          // Continue without image UUIDs
+        }
+        
+        // Return result without image UUIDs if not found
+        return { StudentName: studentName, ...result };
+      })
+    );
+
+    // Convert chosen_answers from object format to array format for each student result
+    resultsWithNamesAndImages.forEach(result => {
+      if (result.chosen_answers && typeof result.chosen_answers === 'object' && !Array.isArray(result.chosen_answers)) {
+        // Convert object format to array format
+        const answersArray = Object.keys(result.chosen_answers)
+          .filter(key => key.startsWith("q") && result.chosen_answers[key] && result.chosen_answers[key].trim() !== "")
+          .map(key => ({ [key]: result.chosen_answers[key] }));
+        
+        result.chosen_answers = answersArray;
+      }
+    });
+    
+    res.json(resultsWithNamesAndImages);
+  } catch (error) {
+    console.error("Error fetching student scores:", error);
+    res.status(500).send("Error fetching student scores");
+  }
+};
+
+const getAnswerKeyRoute = async (req, res, next) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      throw new Error("Invalid exam_id");
+    }
+    const answerKey = await getAnswerKeyForExam(exam_id);
+    res.json({ answerKey });
+  } catch (error) {
+    console.error("Error in /getAnswerKey:", error);
+    res.status(500).send("Error getting answer key");
+  }
+};
+
+const getStudentAttemptRoute = async (req, res, next) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      throw new Error("Invalid exam_id");
+    }
+    const studentAttempt = await getStudentAttempt(exam_id);
+    res.json({ studentAttempt });
+  } catch (error) {
+    console.error("Error in /getStudentAttempt:", error);
+    res.status(500).send("Error getting student attempt");
+  }
+};
+
+const callOMR = async (req, res, next) => {
+  console.log("callOMR");
+  try {
+    const examId = req.params.examId;
+    console.log("Extracted examId from URL:", examId);
+    
+    if (!examId) {
+      return res.status(400).json({ error: "Missing examId parameter" });
+    }
+    
+    // Get template and evaluation JSON
+    console.log("Fetching template and evaluation JSON for exam:", examId);
+    let templates, evaluation_json;
+    
+    try {
+      templates = await getTemplateForExam(examId);
+      console.log("Templates fetched successfully");
+    } catch (error) {
+      console.error("Error fetching templates:", error);
+      return res.status(500).json({ error: `Failed to fetch template: ${error.message}` });
+    }
+    
+    try {
+      evaluation_json = await getEvaluationJsonForExam(examId);
+      console.log("Evaluation JSON generated successfully");
+    } catch (error) {
+      console.error("Error generating evaluation JSON:", error);
+      return res.status(500).json({ error: `Failed to generate evaluation JSON: ${error.message}` });
+    }
+    
+    // Create request body
+    const requestBody = {
+      templates,
+      evaluation_json
+    };
+    
+    console.log("Sending request to OMR service with templates and evaluation_json");
+    
+    // Call OMR processing service
+    const response = await fetch(`http://flaskomr:5000/process/${examId}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(requestBody)
+    });
+    
+    console.log("OMR Response: ", response.status, response.statusText);
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`OMR service returned status ${response.status}: ${errorText}`);
+    }
+    
+    const responseData = await response.json();
+    res.json({
+      message: "OMR processing started successfully",
+      details: responseData
+    });
+  } catch (error) {
+    console.error("Error calling OMR: ", error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const getScoreByExamIdRoute = async (req, res, next) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      return res.status(400).send("Invalid exam_id");
+    }
+    const scores = await getScoreByExamId(exam_id);
+    if (scores.length === 0) {
+      return res.status(404).send("No scores found for this exam");
+    }
+    res.json({ scores });
+  } catch (error) {
+    console.error("Error in /getScoreByExamId:", error);
+    res.status(500).send("Error retrieving scores");
+  }
+};
+
+const getExamQuestionDetailsRoute = async (req, res, next) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      return res.status(400).send("Invalid exam_id");
+    }
+
+    const examDetails = await getExamQuestionDetails(exam_id);
+    if (!examDetails || !examDetails.totalQuestions || !examDetails.examType) {
+      return res.status(404).send("No exam details found for this exam");
+    }
+
+    res.json({ examDetails });
+  } catch (error) {
+    console.error("Error in /getExamQuestionDetails:", error);
+    res.status(500).send("Error retrieving exam details");
+  }
+};
+
 module.exports = {
   saveQuestions,
   newExam,
@@ -909,4 +1109,10 @@ module.exports = {
   getExamQuestionDetailsById,
   getStoredResource,
   finalizeResource,
+  getStudentScores,
+  getAnswerKeyRoute,
+  getStudentAttemptRoute,
+  callOMR,
+  getScoreByExamIdRoute,
+  getExamQuestionDetailsRoute,
 };

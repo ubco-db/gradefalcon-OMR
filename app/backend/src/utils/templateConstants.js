@@ -2,8 +2,13 @@
  * 模板生成器常量
  * 包含LaTeX文档生成和JSON模板生成中使用的所有常量
  */
+/**
+ * Template Generator Constants
+ * Contains all constants used in LaTeX document generation and JSON template generation
+ */
 
 // 布局参数
+// Layout parameters
 const LAYOUT_PARAMS = {
   columnsPerPage: 4,     // 每页的普通列数
   rowsPerPage: 25,       // 每页的行数
@@ -15,15 +20,18 @@ const LAYOUT_PARAMS = {
 };
 
 // JSON模板常量 - 重组为完整模板片段
+// JSON template constants - Restructured as complete template fragments
 const JSON_TEMPLATE_CONSTANTS = {
   
   // 每页基础模板结构
+  // Base template structure for each page
   basePageTemplate: {
       templateDimensions: [1095, 1485],
       bubbleDimensions: [23, 23]
     },
   
   // 学生ID区域模板（仅用于第一页）
+  // Student ID area template (first page only)
   studentIdSection: {
     customBubbleFieldTypes: {
       CUSTOM_ID: {
@@ -57,11 +65,13 @@ const JSON_TEMPLATE_CONSTANTS = {
   },
 
   // 问题类型配置
+  // Question type configuration
   questionFieldTypes: {
 
   },
   
   // 字段类型映射字典
+  // Field type mapping dictionary
   fieldTypeMapping: {
     MCQ4: "QTYPE_MCQ4",
     MCQ5: "QTYPE_MCQ5",
@@ -69,10 +79,12 @@ const JSON_TEMPLATE_CONSTANTS = {
     GRID: "CUSTOM_GRID",
     MCQ10: "CUSTOM_WIDE",
     // 可以根据需要添加更多映射
+    // Can add more mappings as needed
   },
   
   getQuestionFieldType: function(inputType) {
     // 检查是否需要转换输入类型
+    // Check if input type needs conversion
     const bubbleFieldType = this.fieldTypeMapping[inputType] || inputType;
     
     return {
@@ -84,6 +96,7 @@ const JSON_TEMPLATE_CONSTANTS = {
   },
   
   // 生成问题区域配置的辅助函数
+  // Helper function for generating question area configuration
   getQuestionFieldBlock: function(type, questionNumber, options, coordinates) {
     const questionType = this.questionTypes[type];
     const label = `q${questionNumber}`;
@@ -104,8 +117,10 @@ const JSON_TEMPLATE_CONSTANTS = {
 };
 
 // LaTeX命令常量
+// LaTeX command constants
 const LATEX_COMMANDS = {
   // 定义圆圈命令用于学生ID部分
+  // Define circle command for student ID section
   circleCommand: `
     \\newcommand*\\cir[1]{\\tikz[baseline=(char.base)]{
       \\node[shape=circle,draw,inner sep=0.02in] (char) {\\scriptsize #1};}}
@@ -116,10 +131,13 @@ const LATEX_COMMANDS = {
   `,
 
   // MCQ类型 - 标准多选题
+  // MCQ type - Standard multiple choice
   mcqOptionsCommand: `
     % MCQ类型 - 标准多选题
+    % MCQ type - Standard multiple choice
     \\newcommand{\\mcqOptions}[2]{%
       % 参数1: 选项数量, 参数2: 题号
+      % Parameter 1: Number of options, Parameter 2: Question number
       \\begin{minipage}{1.7in}%
         \\makebox[0.5in][r]{\\textbf{#2}}\\hspace{0.1in}
         \\begin{tikzpicture}[baseline=-0.5ex, scale=1]%
@@ -134,10 +152,13 @@ const LATEX_COMMANDS = {
   `,
   
   // 简单的True/False选项
+  // Simple True/False options
   tfOptionsCommand: `
     % 简单的True/False选项
+    % Simple True/False options
     \\newcommand{\\tfOptions}[1]{%
       % 参数1: 题号
+      % Parameter 1: Question number
       \\begin{minipage}{1.7in}%
         \\makebox[0.5in][r]{\\textbf{#1}}\\hspace{0.1in}
         \\begin{tikzpicture}[baseline=-0.5ex, scale=1]%
@@ -151,10 +172,13 @@ const LATEX_COMMANDS = {
   `,
   
   // 网格选项类型 - 支持多行多列的网格布局
+  // Grid option type - Supports multi-row multi-column grid layout
   gridOptionsCommand: `
     % 网格选项类型 - 支持多行多列的网格布局
+    % Grid option type - Supports multi-row multi-column grid layout
     \\newcommand{\\gridOptions}[4]{%
       % 参数1: 行数, 参数2: 列数, 参数3: 选择数量, 参数4: 题号
+      % Parameter 1: Number of rows, Parameter 2: Number of columns, Parameter 3: Number of selections, Parameter 4: Question number
       \\begin{minipage}{3in}%
         \\makebox[0.5in][r]{\\textbf{#4}}\\hspace{0.1in}
         \\begin{tikzpicture}[baseline=-0.5ex, scale=0.8]%
@@ -172,10 +196,13 @@ const LATEX_COMMANDS = {
   `,
   
   // 宽型多选题 - 占用整行
+  // Wide multiple choice - Takes up the entire row
   wideOptionsCommand: `
     % 宽型多选题 - 占用整行
+    % Wide multiple choice - Takes up the entire row
     \\newcommand{\\wideOptions}[2]{%
       % 参数1: 选项数量, 参数2: 题号
+      % Parameter 1: Number of options, Parameter 2: Question number
       \\begin{minipage}{7in}%
         \\makebox[0.5in][r]{\\textbf{#2}}\\hspace{0.1in}
         \\begin{tikzpicture}[baseline=-0.5ex, scale=1]%
@@ -190,11 +217,15 @@ const LATEX_COMMANDS = {
   `,
   
   // 定义新的选项放置命令
+  // Define new option placement command
   placeQuestionAtCommand: `
     % 定义新的选项放置命令
+    % Define new option placement command
     % 参数: 页码, 坐标x, 坐标y, 选项命令
+    % Parameters: Page number, X coordinate, Y coordinate, Option command
     \\newcommand{\\placeQuestionAt}[4]{%
       % 只在相应页面放置选项
+      % Only place options on the corresponding page
       \\ifnum\\value{page}=#1%
         \\AtPageUpperLeft{%
           \\put(#2 in, -#3 in){%
@@ -206,6 +237,7 @@ const LATEX_COMMANDS = {
   `,
 
   // 定义角标QR码
+  // Define corner QR codes
   cornerMarkersCode: `
     % Add corner markers to every page with page-specific content
     \\AddToShipoutPictureBG{%
@@ -272,6 +304,7 @@ const LATEX_COMMANDS = {
   `,
 
   // 学生ID区域模板 - 需要动态插入元数据
+  // Student ID area template - Requires dynamic insertion of metadata
   studentIdCodeTemplate: `
     % Place student ID area at specific position on first page
     \\AddToShipoutPictureBG{%
@@ -302,6 +335,7 @@ const LATEX_COMMANDS = {
   `,
 
   // LaTeX文档头部模板
+  // LaTeX document header template
   documentHeaderTemplate: `
     \\documentclass{article}
     \\usepackage[utf8]{inputenc}

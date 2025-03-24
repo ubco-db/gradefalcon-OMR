@@ -26,6 +26,12 @@ const {
   getExamQuestionDetailsById,
   getStoredResource,
   finalizeResource,
+  getStudentScores,
+  getAnswerKeyRoute,
+  getStudentAttemptRoute,
+  callOMR,
+  getScoreByExamIdRoute,
+  getExamQuestionDetailsRoute,
 } = require("../controllers/examController");
 const { createUploadMiddleware } = require("../middleware/uploadMiddleware");
 const { checkJwt, checkPermissions } = require("../auth0"); // Importing from auth.js
@@ -60,8 +66,8 @@ router.get('/grades/:studentId', checkJwt, checkPermissions(['read:grades']), ge
 router.post("/generateCustomBubbleSheet", checkJwt, checkPermissions(['create:exam']), generateCustomBubbleSheet);  
 router.get("/getExamDetails/:exam_id", checkJwt, checkPermissions(['read:exams']), getExamDetails);
 router.get("/student/exams", checkJwt, checkPermissions(["read:exam_student"]), getStudentExams);
-router.get("/getStudentAttempt/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), getStudentAttempt);
-router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read:exam"]), getExamQuestionDetails);
+router.get("/getStudentAttempt/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), getStudentAttemptRoute);
+router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read:exam"]), getExamQuestionDetailsRoute);
 
 
 router.post('/delete-exam', checkJwt, (req, res, next) => {
@@ -69,97 +75,10 @@ router.post('/delete-exam', checkJwt, (req, res, next) => {
 }, deleteMyExam);
 // Function to get the answer key for a specific exam
 
-router.get("/getAnswerKey/:exam_id", async (req, res, next) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      throw new Error("Invalid exam_id");
-    }
-    const answerKey = await getAnswerKeyForExam(exam_id);
-    res.json({ answerKey });
-  } catch (error) {
-    console.error("Error in /getAnswerKey:", error);
-    res.status(500).send("Error getting answer key");
-  }
-});
-
-// Get the exam attempt for a given student
-router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      throw new Error("Invalid exam_id");
-    }
-    const studentAttempt = await getStudentAttempt(exam_id);
-    res.json({ studentAttempt });
-  } catch (error) {
-    console.error("Error in /getStudentAttempt:", error);
-    res.status(500).send("Error getting student attempt");
-  }
-});
-
+router.get("/getAnswerKey/:exam_id", getAnswerKeyRoute);
 
 // Get student scores stored in Flask OMR service for review
-router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
-  try {
-    const { exam_id } = req.body;
-
-    if (!exam_id) {
-      return res.status(400).json({ error: "Missing exam_id" });
-    }
-
-    // Fetch student scores directly from the OMR service
-    const response = await fetch(`http://flaskomr:5000/student_scores?examId=${exam_id}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json"
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`OMR service returned status: ${response.status}`);
-    }
-    
-    const studentScores = await response.json();
-    
-    // Fetch image UUIDs for each student from the database
-    const resultsWithNamesAndImages = await Promise.all(
-      studentScores.map(async (result) => {
-        const studentName = await getStudentNameById(result.StudentID);
-        
-        // Try to fetch image UUIDs from the database
-        try {
-          const query = `
-            SELECT image_uuids
-            FROM studentResults
-            WHERE exam_id = $1 AND student_id = $2
-          `;
-          
-          const dbResult = await pool.query(query, [exam_id, result.StudentID]);
-          
-          if (dbResult.rows.length > 0 && dbResult.rows[0].image_uuids) {
-            return { 
-              StudentName: studentName, 
-              ...result, 
-              image_uuids: dbResult.rows[0].image_uuids 
-            };
-          }
-        } catch (dbError) {
-          console.error(`Error fetching image UUIDs for student ${result.StudentID}:`, dbError);
-          // Continue without image UUIDs
-        }
-        
-        // Return result without image UUIDs if not found
-        return { StudentName: studentName, ...result };
-      })
-    );
-    
-    res.json(resultsWithNamesAndImages);
-  } catch (error) {
-    console.error("Error fetching student scores:", error);
-    res.status(500).send("Error fetching student scores");
-  }
-});
+router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), getStudentScores);
 
 
 router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
@@ -625,112 +544,15 @@ async function getEvaluationJsonForExam(exam_id) {
 }
 
 // Call the OMR processing service
-router.post("/callOMR/:examId", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
-  console.log("callOMR");
-  try {
-    const examId = req.params.examId;
-    console.log("Extracted examId from URL:", examId);
-    
-    if (!examId) {
-      return res.status(400).json({ error: "Missing examId parameter" });
-    }
-    
-    // 获取模板和评估 JSON
-    console.log("Fetching template and evaluation JSON for exam:", examId);
-    let templates, evaluation_json;
-    
-    try {
-      templates = await getTemplateForExam(examId);
-      console.log("Templates fetched successfully");
-    } catch (error) {
-      console.error("Error fetching templates:", error);
-      return res.status(500).json({ error: `Failed to fetch template: ${error.message}` });
-    }
-    
-    try {
-      evaluation_json = await getEvaluationJsonForExam(examId);
-      console.log("Evaluation JSON generated successfully");
-    } catch (error) {
-      console.error("Error generating evaluation JSON:", error);
-      return res.status(500).json({ error: `Failed to generate evaluation JSON: ${error.message}` });
-    }
-    
-    // 创建请求体
-    const requestBody = {
-      templates,
-      evaluation_json
-    };
-    
-    console.log("Sending request to OMR service with templates and evaluation_json");
-    
-    // 调用 OMR 处理服务
-    const response = await fetch(`http://flaskomr:5000/process/${examId}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(requestBody)
-    });
-    
-    console.log("OMR Response: ", response.status, response.statusText);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`OMR service returned status ${response.status}: ${errorText}`);
-    }
-    
-    const responseData = await response.json();
-    res.json({
-      message: "OMR processing started successfully",
-      details: responseData
-    });
-  } catch (error) {
-    console.error("Error calling OMR: ", error);
-    res.status(500).json({ error: error.message });
-  }
-});
+router.post("/callOMR/:examId", checkJwt, checkPermissions(["upload:file"]), callOMR);
 
 // Images are now handled by the imageController
 // The /api/images/exam/:examId/student/:studentId endpoint should be used instead
 
-router.get("/getScoreByExamId/:exam_id", checkJwt, checkPermissions(["read:grades"]), async (req, res) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      return res.status(400).send("Invalid exam_id");
-    }
-    const scores = await getScoreByExamId(exam_id);
-    if (scores.length === 0) {
-      return res.status(404).send("No scores found for this exam");
-    }
-    res.json({ scores });
-  } catch (error) {
-    console.error("Error in /getScoreByExamId:", error);
-    res.status(500).send("Error retrieving scores");
-  }
-});
+router.get("/getScoreByExamId/:exam_id", checkJwt, checkPermissions(["read:grades"]), getScoreByExamIdRoute);
 
-router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read:exam"]), async (req, res) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      return res.status(400).send("Invalid exam_id");
-    }
-
-    const examDetails = await getExamQuestionDetails(exam_id);
-    if (!examDetails || !examDetails.totalQuestions || !examDetails.examType) {
-      return res.status(404).send("No exam details found for this exam");
-    }
-
-    res.json({ examDetails });
-  } catch (error) {
-    console.error("Error in /getExamQuestionDetails:", error);
-    res.status(500).send("Error retrieving exam details");
-  }
-});
-
-// BUG lack permission checking
-router.post("/saveResults", saveResults);
+// 修复没有权限检查的saveResults路由
+router.post("/saveResults", checkJwt, checkPermissions(["update:grades"]), saveResults);
 
 // router.get("/searchExam/:student_id", checkJwt, checkPermissions(["read:students"]), async (req, res) => {
 //   const studentId = req.params.student_id;
@@ -781,10 +603,10 @@ router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function
   res.send(JSON.stringify("Test route called successfully"));
 });
 
-// 获取已存储的资源（PDF和模板）
+// Get stored resources (PDFs and templates)
 router.get("/resource/:resourceId", checkJwt, getStoredResource);
 
-// 最终化资源（将暂存资源与考试ID关联并永久保存）
+// Finalize resources (associate staged resources with exam ID and permanently save)
 router.post("/finalizeResource", checkJwt, checkPermissions(['create:exam']), finalizeResource);
 
 module.exports = router;

@@ -42,7 +42,8 @@ const ViewExam = () => {
     reviewExams,
     answers,
     total_questions,
-    chosen_answers
+    chosen_answers,
+    image_uuids
   } = location.state || {};
   const [frontSrc, setFrontSrc] = useState("");
   const [backSrc, setBackSrc] = useState("");
@@ -60,7 +61,7 @@ const ViewExam = () => {
     student_name,
     answers,
     chosen_answers,
-    image_uuids: location.state && location.state.image_uuids ? location.state.image_uuids : "none",
+    image_uuids,
     reviewExams,
     exam_id,
     student_id

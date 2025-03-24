@@ -33,7 +33,7 @@ const NewExam = () => {
   const [numQuestions, setNumQuestions] = useState(100); // Default to 100 MCQs
   const [numOptions, setNumOptions] = useState(5); // Default to 5 options
   const [loading, setLoading] = useState(false);
-  const [templateId, setTemplateId] = useState(null); // 添加templateId状态
+  const [templateId, setTemplateId] = useState(null); // Add templateId state
   const navigate = useNavigate();
 
   useEffect(() => {

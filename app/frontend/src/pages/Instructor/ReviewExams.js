@@ -116,11 +116,22 @@ const fetchStudentScores = async () => {
     });
   };
 
-  const handleScoreChange = (e, studentId) => {
+  const handleScoreChange = (e, index) => {
     const newScore = e.target.value;
-    setStudentScores((currentScores) =>
-      currentScores.map((score) => (score.StudentID === studentId ? { ...score, Score: newScore } : score))
-    );
+    setStudentScores((currentScores) => {
+      const newScores = [...currentScores];
+      newScores[index] = { ...newScores[index], Score: newScore };
+      return newScores;
+    });
+  };
+
+  const handleStudentIdChange = (e, index) => {
+    const newStudentId = e.target.value;
+    setStudentScores((currentScores) => {
+      const newScores = [...currentScores];
+      newScores[index] = { ...newScores[index], StudentID: newStudentId };
+      return newScores;
+    });
   };
 
   const saveResults = async () => {
@@ -197,14 +208,21 @@ const fetchStudentScores = async () => {
                 {filteredScores.map((student, index) => (
                   <TableRow key={index}>
                     <TableCell>{student.StudentName}</TableCell>
-                    <TableCell>{student.StudentID}</TableCell>
+                    <TableCell>
+                      <Input
+                        type="text"
+                        value={student.StudentID}
+                        onChange={(e) => handleStudentIdChange(e, index)}
+                        className="w-32 px-2 py-1"
+                      />
+                    </TableCell>
                     <TableCell>
                       <Input
                         type="number"
                         value={student.Score}
                         max={totalMarks}
                         min="0"
-                        onChange={(e) => handleScoreChange(e, student.StudentID)}
+                        onChange={(e) => handleScoreChange(e, index)}
                         className="w-16 px-2 py-1"
                       />
                     </TableCell>
@@ -214,7 +232,7 @@ const fetchStudentScores = async () => {
                         variant="ghost"
                         className="flex items-center justify-center hover:text-primary"
                         onClick={() =>
-                          handleViewClick(student.StudentID, student.StudentName, student.Score, student.image_uuids)
+                          handleViewClick(student.StudentID, student.StudentName, student.Score, student.chosen_answers, student.image_uuids)
                         }
                       >
                         <EyeIcon className="h-6 w-6" />
