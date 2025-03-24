@@ -42,8 +42,8 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
         throw new Error("Failed to generate PDF");
       }
 
-      // Get templateId from response header
-      const templateId = response.headers.get('X-Resource-ID');
+      // Get templateId from response headers
+      const templateId = response.headers.get('X-Template-Id');
       if (templateId && onTemplateIdChange) {
         onTemplateIdChange(templateId);
       }
