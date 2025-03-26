@@ -603,7 +603,7 @@ async function generateCustomBubbleSheet(req, res) {
       // Set response headers and stream the PDF file
       res.setHeader('Content-Disposition', `attachment; filename="${randomFileName}.pdf"`);
       res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('X-Resource-ID', templateId); // Include resource ID in response header
+      res.setHeader('X-Template-ID', templateId); // Include resource ID in response header
       const pdfStream = fs.createReadStream(pdfFilePath);
       pdfStream.pipe(res);
 
@@ -1081,6 +1081,133 @@ const getExamQuestionDetailsRoute = async (req, res, next) => {
   }
 };
 
+function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
+  return {
+    source_type: "local",
+    options: {
+      questions_in_order: Array.from({ length: questions.length }, (_, i) => `q${i + questionStartIndex}`),
+      answers_in_order: questions,
+    },
+    outputs_configuration: {
+      should_explain_scoring: true,
+      draw_question_verdicts: {
+        enabled: true,
+        verdict_colors: {
+          correct: "#00ff00",
+          neutral: "#ff0000",
+          incorrect: "#ff0000",
+        },
+        verdict_symbol_colors: {
+          positive: "#000000",
+          neutral: "#000000",
+          negative: "#000000",
+        },
+        draw_answer_groups: {
+          enabled: true,
+        },
+      },
+      draw_detected_bubble_texts: {
+        enabled: false,
+      },
+    },
+    marking_schemes: markingSchemes,
+  };
+}
+
+async function getTemplateForExam(examId) {
+  try {
+    if (!examId) {
+      throw new Error("Missing exam ID");
+    }
+
+    // Query the database to get the template files
+    const query = "SELECT template_file FROM exam WHERE exam_id = $1";
+    const result = await pool.query(query, [examId]);
+
+    if (result.rows.length === 0) {
+      throw new Error("Exam not found");
+    }
+
+    const templateFiles = result.rows[0].template_file;
+    
+    if (!templateFiles) {
+      throw new Error("No template files found for this exam");
+    }
+
+    return templateFiles;
+  } catch (error) {
+    console.error("Error fetching template files:", error);
+    throw error;
+  }
+}
+
+async function getEvaluationJsonForExam(exam_id) {
+  exam_id = parseInt(exam_id, 10);
+  
+  if (isNaN(exam_id)) {
+    throw new Error("Invalid exam_id");
+  }
+
+  try {
+    // get exam question details by exam id
+    const examDetails = await getExamQuestionDetailsById(exam_id);
+    const { examType, totalQuestions } = examDetails;
+    
+    // get answer key and marking schemes
+    const answerKey = await getAnswerKeyForExam(exam_id);
+    
+    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
+
+    const markingSchemes = {
+      DEFAULT: {
+        correct: "1",
+        incorrect: "0",
+        unmarked: "0",
+      },
+    };
+
+    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
+      markingSchemes[sectionName] = {
+        questions: scheme.questions,
+        marking: scheme.marking,
+      };
+    }
+
+    let response = {};
+
+    if (examType === "200mcq" || (examType === "custom" && totalQuestions > 100)) {
+      const firstHalfQuestions = answerKey.slice(0, 100);
+      const secondHalfQuestions = answerKey.slice(100);
+
+      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
+      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
+
+      response = {
+        page_1: evaluationJsonPage1,
+        page_2: evaluationJsonPage2
+      };
+    } else if (examType === "100mcq") {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } 
+    else if (examType === "custom" && totalQuestions <= 100) {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } else {
+      throw new Error("Invalid exam type.");
+    }
+
+    return response;
+  } catch (error) {
+    console.error("Error generating evaluation JSON:", error);
+    throw error;
+  }
+}
+
 module.exports = {
   saveQuestions,
   newExam,
@@ -1115,4 +1242,7 @@ module.exports = {
   callOMR,
   getScoreByExamIdRoute,
   getExamQuestionDetailsRoute,
+  createEvaluationJson,
+  getTemplateForExam,
+  getEvaluationJsonForExam,
 };

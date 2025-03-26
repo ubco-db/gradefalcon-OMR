@@ -44,6 +44,7 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
 
       // Get templateId from response headers
       const templateId = response.headers.get('X-Template-Id');
+      console.log("templateId", templateId);
       if (templateId && onTemplateIdChange) {
         onTemplateIdChange(templateId);
       }
