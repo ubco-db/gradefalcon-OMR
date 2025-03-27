@@ -44,9 +44,8 @@ export default function ViewExamDetails() {
           setExamDetails(data.exam);
           setCanViewExam(data.exam.viewing_options.canViewExam);
           setCanViewAnswers(data.exam.viewing_options.canViewAnswers);
-          if (canViewExam) {
-            console.log("canViewExam", canViewExam);
-            fetchStudentExam(token, data.exam.student_id, canViewAnswers);
+          if (data.exam.viewing_options.canViewExam) {
+            fetchStudentExam(token, data.exam.student_id, data.exam.viewing_options.canViewAnswers);
           }
         } else {
           console.error("Failed to fetch exam details");
@@ -67,6 +66,7 @@ export default function ViewExamDetails() {
       
       return new Blob([ab], { type: 'image/png' });
     };
+          
     const fetchStudentExam = async (token, studentId, canViewAnswers) => {
       try {
         const response = await fetch(`/api/images/exam/${exam_id}/student/${studentId}`, {
