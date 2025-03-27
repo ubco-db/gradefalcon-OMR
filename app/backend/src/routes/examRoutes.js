@@ -26,13 +26,10 @@ const {
   getExamQuestionDetailsById,
   getStoredResource,
   finalizeResource,
-  getStudentScores,
-  getAnswerKeyRoute,
-  getStudentAttemptRoute,
+  createEvaluationJson,
   callOMR,
-  getScoreByExamIdRoute,
-  getExamQuestionDetailsRoute,
-  createEvaluationJson
+  fetchStudentScores,
+  uploadExam
 } = require("../controllers/examController");
 const { createUploadMiddleware } = require("../middleware/uploadMiddleware");
 const { checkJwt, checkPermissions } = require("../auth0"); // Importing from auth.js
@@ -67,8 +64,8 @@ router.get('/grades/:studentId', checkJwt, checkPermissions(['read:grades']), ge
 router.post("/generateCustomBubbleSheet", checkJwt, checkPermissions(['create:exam']), generateCustomBubbleSheet);  
 router.get("/getExamDetails/:exam_id", checkJwt, checkPermissions(['read:exams']), getExamDetails);
 router.get("/student/exams", checkJwt, checkPermissions(["read:exam_student"]), getStudentExams);
-router.get("/getStudentAttempt/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), getStudentAttemptRoute);
-router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read:exam"]), getExamQuestionDetailsRoute);
+router.get("/getStudentAttempt/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), getStudentAttempt);
+router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read:exam"]), getExamQuestionDetails);
 
 
 router.post('/delete-exam', checkJwt, (req, res, next) => {
@@ -76,10 +73,38 @@ router.post('/delete-exam', checkJwt, (req, res, next) => {
 }, deleteMyExam);
 // Function to get the answer key for a specific exam
 
-router.get("/getAnswerKey/:exam_id", getAnswerKeyRoute);
+router.get("/getAnswerKey/:exam_id", async (req, res, next) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      throw new Error("Invalid exam_id");
+    }
+    const answerKey = await getAnswerKeyForExam(exam_id);
+    res.json({ answerKey });
+  } catch (error) {
+    console.error("Error in /getAnswerKey:", error);
+    res.status(500).send("Error getting answer key");
+  }
+});
+
+// Get the exam attempt for a given student
+router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      throw new Error("Invalid exam_id");
+    }
+    const studentAttempt = await getStudentAttempt(exam_id);
+    res.json({ studentAttempt });
+  } catch (error) {
+    console.error("Error in /getStudentAttempt:", error);
+    res.status(500).send("Error getting student attempt");
+  }
+});
+
 
 // Get student scores stored in Flask OMR service for review
-router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), getStudentScores);
+router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), fetchStudentScores);
 
 
 router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
@@ -147,6 +172,7 @@ router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["
 
 router.post("/fetchChangelog", checkJwt, checkPermissions(["read:grades"]), getGradeChangeLog);
 
+// TODO: Legacy route for getting results used by examkey, remove when examkey is removed
 router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
   const singlePage = req.body.singlePage;
   const inputDirPath = path.join(__dirname, "../../omr/inputs");
@@ -202,7 +228,7 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
 // Removed saveStudentExams route since it's no longer being used
 // All functionality has been consolidated into the saveResults endpoint
 
-// Save the exam key uploaded by the user
+// TODO: Legacy route for saving exam key used by examkey, remove when examkey is removed
 router.post("/saveExamKey/:examType", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   combinedUpload(req, res, async function (err) {
     if (err) {
@@ -274,7 +300,7 @@ router.post("/saveExamKey/:examType", checkJwt, checkPermissions(["upload:file"]
 
 
 
-// Copy the template JSON file to the shared volume
+// TODO: Legacy route for copying template JSON file to the shared volume, remove when examkey is removed
 router.post("/copyTemplate", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   console.log("copyTemplate");
   const { examType, keyOrExam, numQuestions, examTitle, classID, courseId } = req.body;
@@ -345,70 +371,7 @@ router.post("/copyTemplate", checkJwt, checkPermissions(["upload:file"]), async 
 });
 
 
-// Generate the evaluation JSON for an exam
-router.post("/GenerateEvaluation", checkJwt, checkPermissions(["create:evaluation"]), async function (req, res) {
-  const { examType, exam_id, numQuestions } = req.body;
-
-  if (!exam_id) {
-    return res.status(400).json({ error: "Missing exam_id" });
-  }
-
-  try {
-    const answerKey = await getAnswerKeyForExam(exam_id);
-    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
-
-    const markingSchemes = {
-      DEFAULT: {
-        correct: "1",
-        incorrect: "0",
-        unmarked: "0",
-      },
-    };
-
-    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
-      markingSchemes[sectionName] = {
-        questions: scheme.questions,
-        marking: scheme.marking,
-      };
-    }
-
-    if (examType === "200mcq" || (examType === "custom" && numQuestions > 100)) {
-      const firstHalfQuestions = answerKey.slice(0, 100);
-      const secondHalfQuestions = answerKey.slice(100);
-
-      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
-      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
-
-      ensureDirectoryExistence("/code/omr/inputs/page_1");
-      ensureDirectoryExistence("/code/omr/inputs/page_2");
-
-      fs.writeFileSync("/code/omr/inputs/page_1/evaluation.json", JSON.stringify(evaluationJsonPage1, null, 2));
-      fs.writeFileSync("/code/omr/inputs/page_2/evaluation.json", JSON.stringify(evaluationJsonPage2, null, 2));
-
-      return res.json({ message: "evaluation.json files created successfully for 200mcq or custom with more than 100 questions" });
-    } else if (examType === "100mcq") {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-
-      ensureDirectoryExistence("/code/omr/inputs/page_2");
-      fs.writeFileSync("/code/omr/inputs/page_2/evaluation.json", JSON.stringify(evaluationJson, null, 2));
-
-      return res.json({ message: "evaluation.json created successfully for 100mcq o" });
-    } 
-    else if (examType === "custom" && numQuestions <= 100) {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-
-      ensureDirectoryExistence("/code/omr/inputs/page_1");
-      fs.writeFileSync("/code/omr/inputs/page_1/evaluation.json", JSON.stringify(evaluationJson, null, 2));
-      return res.json({ message: "evaluation.json created successfully for custom with 100 or fewer questions" });
-    } else {
-      return res.status(400).json({ error: "Invalid exam type." });
-    }
-  } catch (error) {
-    console.error("Error in /GenerateEvaluation:", error);
-    return res.status(500).json({ error: "Error generating evaluation file" });
-  }
-});
-
+// GenerateEvaluation removed, use getEvaluationJsonForExam instead
 
 // Call the OMR processing service
 router.post("/callOMR/:examId", checkJwt, checkPermissions(["upload:file"]), callOMR);
@@ -416,10 +379,44 @@ router.post("/callOMR/:examId", checkJwt, checkPermissions(["upload:file"]), cal
 // Images are now handled by the imageController
 // The /api/images/exam/:examId/student/:studentId endpoint should be used instead
 
-router.get("/getScoreByExamId/:exam_id", checkJwt, checkPermissions(["read:grades"]), getScoreByExamIdRoute);
+router.get("/getScoreByExamId/:exam_id", checkJwt, checkPermissions(["read:grades"]), async (req, res) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      return res.status(400).send("Invalid exam_id");
+    }
+    const scores = await getScoreByExamId(exam_id);
+    if (scores.length === 0) {
+      return res.status(404).send("No scores found for this exam");
+    }
+    res.json({ scores });
+  } catch (error) {
+    console.error("Error in /getScoreByExamId:", error);
+    res.status(500).send("Error retrieving scores");
+  }
+});
 
-// 修复没有权限检查的saveResults路由
-router.post("/saveResults", checkJwt, checkPermissions(["update:grades"]), saveResults);
+router.get("/getExamQuestionDetails/:exam_id", checkJwt, checkPermissions(["read:exam"]), async (req, res) => {
+  try {
+    const exam_id = parseInt(req.params.exam_id, 10);
+    if (isNaN(exam_id)) {
+      return res.status(400).send("Invalid exam_id");
+    }
+
+    const examDetails = await getExamQuestionDetails(exam_id);
+    if (!examDetails || !examDetails.totalQuestions || !examDetails.examType) {
+      return res.status(404).send("No exam details found for this exam");
+    }
+
+    res.json({ examDetails });
+  } catch (error) {
+    console.error("Error in /getExamQuestionDetails:", error);
+    res.status(500).send("Error retrieving exam details");
+  }
+});
+
+// BUG lack permission checking
+router.post("/saveResults", saveResults);
 
 // router.get("/searchExam/:student_id", checkJwt, checkPermissions(["read:students"]), async (req, res) => {
 //   const studentId = req.params.student_id;

@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const { exec } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
-const fetch = require('node-fetch');
+const multer = require('multer');
 
 // Template cache: in-memory storage for templates
 const templateCache = new Map();
@@ -170,7 +170,7 @@ const saveQuestions = async (req, res, next) => {
       JSON.stringify(markingSchemes),
     ]);
 
-    res.status(201).json({ examId: insertedRowId });
+    res.status(200).json({ message: "Questions and marking schemes saved successfully." });
   } catch (error) {
     console.error("Error saving questions:", error);
     next(error);
@@ -455,6 +455,72 @@ const changeGrade = async (req, res, next) => {
   }
 };
 
+const fetchStudentScores = async (req, res) =>  {
+  try {
+    const { exam_id } = req.body;
+
+    if (!exam_id) {
+      return res.status(400).json({ error: "Missing exam_id" });
+    }
+
+    // Fetch student scores directly from the OMR service
+    const response = await fetch(`http://flaskomr:5000/student_scores?examId=${exam_id}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`OMR service returned status: ${response.status}`);
+    }
+
+    const studentScores = await response.json();
+
+    // Fetch image UUIDs for each student from the database
+    const resultsWithNamesAndImages = await Promise.all(
+      studentScores.map(async (result) => {
+        let questionFields = Object.keys(result.chosen_answers)
+        .filter((key) => key.startsWith("q") && result.chosen_answers[key].trim() !== "")
+        .map((key) => ({ [key]: result.chosen_answers[key] }));
+        result.chosen_answers = questionFields;
+        // get student name
+        const studentName = await getStudentNameById(result.StudentID);
+
+        // Try to fetch image UUIDs from the database
+        try {
+          const query = `
+            SELECT image_uuids
+            FROM studentResults
+            WHERE exam_id = $1 AND student_id = $2
+          `;
+
+          const dbResult = await pool.query(query, [exam_id, result.StudentID]);
+
+          if (dbResult.rows.length > 0 && dbResult.rows[0].image_uuids) {
+            return {
+              StudentName: studentName,
+              ...result,
+              image_uuids: dbResult.rows[0].image_uuids
+            };
+          }
+        } catch (dbError) {
+          console.error(`Error fetching image UUIDs for student ${result.StudentID}:`, dbError);
+          // Continue without image UUIDs
+        }
+
+        // Return result without image UUIDs if not found
+        return { StudentName: studentName, ...result };
+      })
+    );
+
+    res.json(resultsWithNamesAndImages);
+  } catch (error) {
+    console.error("Error fetching student scores:", error);
+    res.status(500).send("Error fetching student scores");
+  }
+};
+
 const saveResults = async (req, res, next) => {
   const { studentScores, exam_id, examType, numQuestions } = req.body;
   console.log(`Saving results for exam ${exam_id} (${examType}, ${numQuestions} questions)`);
@@ -471,12 +537,8 @@ const saveResults = async (req, res, next) => {
       const grade = student.Score;
 
       // Handle chosen_answers - could be nested or flat
-      let chosen_answers = student.chosen_answers;
+      let chosen_answers = JSON.stringify(student.chosen_answers);
       console.log("chosen_answers", chosen_answers);
-      // If chosen_answers is not present, extract q* fields
-      if (!chosen_answers) {
-        chosen_answers = {};
-      }
       // Handle image_uuids
       const image_uuids = student.image_uuids || {};
 
@@ -491,14 +553,14 @@ const saveResults = async (req, res, next) => {
           SET grade = $1, chosen_answers = $2, image_uuids = $3
           WHERE student_id = $4 AND exam_id = $5
         `;
-        await pool.query(updateQuery, [grade, JSON.stringify(chosen_answers), image_uuids, student_id, exam_id]);
+        await pool.query(updateQuery, [grade, chosen_answers, image_uuids, student_id, exam_id]);
       } else {
         // Insert new record
         const insertQuery = `
           INSERT INTO studentResults (student_id, exam_id, grade, chosen_answers, image_uuids)
           VALUES ($1, $2, $3, $4, $5)
         `;
-        await pool.query(insertQuery, [student_id, exam_id, grade, JSON.stringify(chosen_answers), image_uuids]);
+        await pool.query(insertQuery, [student_id, exam_id, grade, chosen_answers, image_uuids]);
       }
     }
 
@@ -549,10 +611,24 @@ async function generateCustomBubbleSheet(req, res) {
   if (!numQuestions || !numOptions || !courseId || !examTitle || !classId) {
     return res.status(400).send("Missing required parameters");
   }
+  const randomFilePath = `template_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
+  const outputDir = path.join(__dirname, '../assets/custom', randomFilePath);
+  let pdfFilePath = '';
+  
+  // cleanup function - delete the entire output directory
+  const cleanupDirectory = () => {
+    try {
+      if (fs.existsSync(outputDir)) {
+        fs.rmSync(outputDir, { recursive: true, force: true });
+        console.log(`Temporary directory deleted: ${outputDir}`);
+      }
+    } catch (cleanupError) {
+      console.error(`Error deleting directory: ${outputDir}`, cleanupError);
+    }
+  };
 
   try {
-    // Create output directory (if it doesn't exist)
-    const outputDir = path.join(__dirname, '../assets/custom');
+    // create output directory (if it doesn't exist)
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
@@ -562,9 +638,8 @@ async function generateCustomBubbleSheet(req, res) {
     const { LAYOUT_PARAMS } = require('../utils/templateConstants');
 
     // Generate random file name
-    const randomFileName = `template_${Date.now()}_${Math.floor(Math.random() * 10000)}`;
-    const latexFilePath = path.join(outputDir, `${randomFileName}.tex`);
-    const pdfFilePath = path.join(outputDir, `${randomFileName}.pdf`);
+    const latexFilePath = path.join(outputDir, `${randomFilePath}.tex`);
+    pdfFilePath = path.join(outputDir, `${randomFilePath}.pdf`);
 
     // Calculate question distribution
     const { usedCommandTypes, structuredPositions } = calculateQuestionDistribution(numQuestions, numOptions, LAYOUT_PARAMS);
@@ -584,7 +659,8 @@ async function generateCustomBubbleSheet(req, res) {
     exec(`pdflatex -output-directory=${outputDir} ${latexFilePath}`, (error, stdout, stderr) => {
       if (error) {
         console.error('Error compiling LaTeX:', stderr);
-        return res.status(500).send("Failed to generate PDF.");
+        cleanupDirectory();
+        return res.status(500).send("Failed to generate PDF");
       }
 
       // Store in cache with timestamp and other metadata
@@ -601,28 +677,29 @@ async function generateCustomBubbleSheet(req, res) {
       console.log(`Template and PDF ${templateId} stored in cache`);
 
       // Set response headers and stream the PDF file
-      res.setHeader('Content-Disposition', `attachment; filename="${randomFileName}.pdf"`);
+      res.setHeader('Content-Disposition', `attachment; filename="${randomFilePath}.pdf"`);
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('X-Template-ID', templateId); // Include resource ID in response header
       const pdfStream = fs.createReadStream(pdfFilePath);
-      pdfStream.pipe(res);
-
-      // Clean up auxiliary files after PDF is sent
-      pdfStream.on('close', () => {
-        // Clean up generated auxiliary files
-        const auxFilePath = path.join(outputDir, `${randomFileName}.aux`);
-        const logFilePath = path.join(outputDir, `${randomFileName}.log`);
-
-        fs.unlink(auxFilePath, (err) => {
-          if (err) console.error(`Error deleting ${auxFilePath}:`, err);
-        });
-        fs.unlink(logFilePath, (err) => {
-          if (err) console.error(`Error deleting ${logFilePath}:`, err);
-        });
+      
+      // Set stream event handler
+      pdfStream.on('error', (streamError) => {
+        console.error('Error reading PDF stream:', streamError);
+        cleanupDirectory();
       });
+      
+      // delete the output directory after the file is sent
+      pdfStream.on('end', () => {
+        // give a little time to ensure the response is fully sent
+        setTimeout(cleanupDirectory, 1000);
+      });
+      
+      // pipe output to response
+      pdfStream.pipe(res);
     });
   } catch (error) {
     console.error('Error generating bubble sheet:', error);
+    cleanupDirectory();
     res.status(500).send("Error generating bubble sheet");
   }
 }
@@ -715,6 +792,70 @@ const getStudentExams = async (req, res, next) => {
     next(err);
   }
 };
+
+const uploadExam = async (req, res) => {
+  const { examType, numQuestions } = req.params;
+
+  const upload = multer({ dest: "uploads/" }).single("examPages");
+
+  upload(req, res, async function (err) {
+    if (err) {
+      return res.status(500).send("Error uploading file.");
+    }
+
+    const { path: tempFilePath } = req.file;
+    const exam_id = req.body.exam_id; 
+
+    if (!exam_id) {
+      fs.unlinkSync(tempFilePath); 
+      return res.status(400).send("Missing exam_id parameter");
+    }
+
+    try {
+      // create FormData object, for sending file
+      const formData = new FormData();
+      formData.append('pdf_file', fs.createReadStream(tempFilePath));
+      formData.append('exam_id', exam_id);
+      
+      // set doubleSide parameter based on exam type
+      const doubleSide = examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq";
+      formData.append('doubleSide', doubleSide.toString());
+
+      // send request to Flask OMR service split_pdf endpoint
+      const response = await fetch("http://flaskomr:5000/split_pdf", {
+        method: "POST",
+        body: formData
+      });
+      
+      // delete temporary file
+      fs.unlinkSync(tempFilePath);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`PDF split failed: ${errorData.error || 'Unknown error'}`);
+      }
+      
+      const responseData = await response.json();
+      res.json({ 
+        message: "Exam uploaded successfully", 
+        details: responseData 
+      });
+      
+    } catch (error) {
+      console.error("Error processing PDF file:", error);
+      // ensure temporary file is deleted
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch (unlinkError) {
+        console.error("Error deleting temporary file:", unlinkError);
+      }
+      res.status(500).send(`Error processing PDF file: ${error.message}`);
+    }
+  });
+};
+
 
 const getGradeChangeLog = async (req, res, next) => {
   const { student_id, exam_id } = req.body;
@@ -879,121 +1020,20 @@ const deleteMyExam = async (req, res, next) => {
   }
 };
 
-const getStudentScores = async (req, res, next) => {
-  try {
-    const { exam_id } = req.body;
-
-    if (!exam_id) {
-      return res.status(400).json({ error: "Missing exam_id" });
-    }
-
-    // Fetch student scores directly from the OMR service
-    const response = await fetch(`http://flaskomr:5000/student_scores?examId=${exam_id}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json"
-      }
-    });
-    
-    if (!response.ok) {
-      throw new Error(`OMR service returned status: ${response.status}`);
-    }
-    
-    const studentScores = await response.json();
-    
-    // Fetch image UUIDs for each student from the database
-    const resultsWithNamesAndImages = await Promise.all(
-      studentScores.map(async (result) => {
-        const studentName = await getStudentNameById(result.StudentID);
-        
-        // Try to fetch image UUIDs from the database
-        try {
-          const query = `
-            SELECT image_uuids
-            FROM studentResults
-            WHERE exam_id = $1 AND student_id = $2
-          `;
-          
-          const dbResult = await pool.query(query, [exam_id, result.StudentID]);
-          
-          if (dbResult.rows.length > 0 && dbResult.rows[0].image_uuids) {
-            return { 
-              StudentName: studentName, 
-              ...result, 
-              image_uuids: dbResult.rows[0].image_uuids 
-            };
-          }
-        } catch (dbError) {
-          console.error(`Error fetching image UUIDs for student ${result.StudentID}:`, dbError);
-          // Continue without image UUIDs
-        }
-        
-        // Return result without image UUIDs if not found
-        return { StudentName: studentName, ...result };
-      })
-    );
-
-    // Convert chosen_answers from object format to array format for each student result
-    resultsWithNamesAndImages.forEach(result => {
-      if (result.chosen_answers && typeof result.chosen_answers === 'object' && !Array.isArray(result.chosen_answers)) {
-        // Convert object format to array format
-        const answersArray = Object.keys(result.chosen_answers)
-          .filter(key => key.startsWith("q") && result.chosen_answers[key] && result.chosen_answers[key].trim() !== "")
-          .map(key => ({ [key]: result.chosen_answers[key] }));
-        
-        result.chosen_answers = answersArray;
-      }
-    });
-    
-    res.json(resultsWithNamesAndImages);
-  } catch (error) {
-    console.error("Error fetching student scores:", error);
-    res.status(500).send("Error fetching student scores");
-  }
-};
-
-const getAnswerKeyRoute = async (req, res, next) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      throw new Error("Invalid exam_id");
-    }
-    const answerKey = await getAnswerKeyForExam(exam_id);
-    res.json({ answerKey });
-  } catch (error) {
-    console.error("Error in /getAnswerKey:", error);
-    res.status(500).send("Error getting answer key");
-  }
-};
-
-const getStudentAttemptRoute = async (req, res, next) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      throw new Error("Invalid exam_id");
-    }
-    const studentAttempt = await getStudentAttempt(exam_id);
-    res.json({ studentAttempt });
-  } catch (error) {
-    console.error("Error in /getStudentAttempt:", error);
-    res.status(500).send("Error getting student attempt");
-  }
-};
-
 const callOMR = async (req, res, next) => {
   console.log("callOMR");
   try {
     const examId = req.params.examId;
     console.log("Extracted examId from URL:", examId);
-    
+
     if (!examId) {
       return res.status(400).json({ error: "Missing examId parameter" });
     }
-    
-    // Get template and evaluation JSON
+
+    // get template and evaluation JSON
     console.log("Fetching template and evaluation JSON for exam:", examId);
     let templates, evaluation_json;
-    
+
     try {
       templates = await getTemplateForExam(examId);
       console.log("Templates fetched successfully");
@@ -1001,7 +1041,7 @@ const callOMR = async (req, res, next) => {
       console.error("Error fetching templates:", error);
       return res.status(500).json({ error: `Failed to fetch template: ${error.message}` });
     }
-    
+
     try {
       evaluation_json = await getEvaluationJsonForExam(examId);
       console.log("Evaluation JSON generated successfully");
@@ -1009,16 +1049,16 @@ const callOMR = async (req, res, next) => {
       console.error("Error generating evaluation JSON:", error);
       return res.status(500).json({ error: `Failed to generate evaluation JSON: ${error.message}` });
     }
-    
-    // Create request body
+
+    // create request body
     const requestBody = {
       templates,
       evaluation_json
     };
-    
+
     console.log("Sending request to OMR service with templates and evaluation_json");
-    
-    // Call OMR processing service
+
+    // call OMR processing service
     const response = await fetch(`http://flaskomr:5000/process/${examId}`, {
       method: "POST",
       headers: {
@@ -1026,14 +1066,14 @@ const callOMR = async (req, res, next) => {
       },
       body: JSON.stringify(requestBody)
     });
-    
+
     console.log("OMR Response: ", response.status, response.statusText);
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`OMR service returned status ${response.status}: ${errorText}`);
     }
-    
+
     const responseData = await response.json();
     res.json({
       message: "OMR processing started successfully",
@@ -1043,44 +1083,79 @@ const callOMR = async (req, res, next) => {
     console.error("Error calling OMR: ", error);
     res.status(500).json({ error: error.message });
   }
-};
+}
 
-const getScoreByExamIdRoute = async (req, res, next) => {
-  try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      return res.status(400).send("Invalid exam_id");
-    }
-    const scores = await getScoreByExamId(exam_id);
-    if (scores.length === 0) {
-      return res.status(404).send("No scores found for this exam");
-    }
-    res.json({ scores });
-  } catch (error) {
-    console.error("Error in /getScoreByExamId:", error);
-    res.status(500).send("Error retrieving scores");
+// Helper function to get evaluation JSON for an exam
+async function getEvaluationJsonForExam(exam_id) {
+  exam_id = parseInt(exam_id, 10);
+
+  if (isNaN(exam_id)) {
+    throw new Error("Invalid exam_id");
   }
-};
 
-const getExamQuestionDetailsRoute = async (req, res, next) => {
   try {
-    const exam_id = parseInt(req.params.exam_id, 10);
-    if (isNaN(exam_id)) {
-      return res.status(400).send("Invalid exam_id");
+    // get exam question details by exam id
+    const examDetails = await getExamQuestionDetailsById(exam_id);
+    console.log("Exam details:", JSON.stringify(examDetails));
+    const { examType, totalQuestions } = examDetails;
+
+    // get answer key and marking schemes
+    const answerKey = await getAnswerKeyForExam(exam_id);
+
+    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
+    console.log("Custom marking schemes:", JSON.stringify(customMarkingSchemes));
+
+    const markingSchemes = {
+      DEFAULT: {
+        correct: "1",
+        incorrect: "0",
+        unmarked: "0",
+      },
+    };
+
+    // TODO: spliting custom schemes with more than 100 questions will have same marking scheme for both halves, leading to error in OMR service
+    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
+      markingSchemes[sectionName] = {
+        questions: scheme.questions,
+        marking: scheme.marking,
+      };
     }
 
-    const examDetails = await getExamQuestionDetails(exam_id);
-    if (!examDetails || !examDetails.totalQuestions || !examDetails.examType) {
-      return res.status(404).send("No exam details found for this exam");
+    let response = {};
+
+    if (examType === "200mcq" || (examType === "custom" && totalQuestions > 100)) {
+      const firstHalfQuestions = answerKey.slice(0, 100);
+      const secondHalfQuestions = answerKey.slice(100);
+
+      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
+      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
+
+      response = {
+        page_1: evaluationJsonPage1,
+        page_2: evaluationJsonPage2
+      };
+    } else if (examType === "100mcq") {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    }
+    else if (examType === "custom" && totalQuestions <= 100) {
+      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
+      response = {
+        page_1: evaluationJson
+      };
+    } else {
+      throw new Error("Invalid exam type.");
     }
 
-    res.json({ examDetails });
+    return response;
   } catch (error) {
-    console.error("Error in /getExamQuestionDetails:", error);
-    res.status(500).send("Error retrieving exam details");
+    console.error("Error generating evaluation JSON:", error);
+    throw error;
   }
-};
-
+}
+// helper function to create evaluation JSON for an exam
 function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
   return {
     source_type: "local",
@@ -1114,6 +1189,7 @@ function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
   };
 }
 
+// Helper function to get template for an exam
 async function getTemplateForExam(examId) {
   try {
     if (!examId) {
@@ -1129,81 +1205,17 @@ async function getTemplateForExam(examId) {
     }
 
     const templateFiles = result.rows[0].template_file;
-    
+
     if (!templateFiles) {
       throw new Error("No template files found for this exam");
     }
 
+    console.log("Template files type:", typeof templateFiles);
+    console.log("Template files structure:", JSON.stringify(templateFiles));
+
     return templateFiles;
   } catch (error) {
     console.error("Error fetching template files:", error);
-    throw error;
-  }
-}
-
-async function getEvaluationJsonForExam(exam_id) {
-  exam_id = parseInt(exam_id, 10);
-  
-  if (isNaN(exam_id)) {
-    throw new Error("Invalid exam_id");
-  }
-
-  try {
-    // get exam question details by exam id
-    const examDetails = await getExamQuestionDetailsById(exam_id);
-    const { examType, totalQuestions } = examDetails;
-    
-    // get answer key and marking schemes
-    const answerKey = await getAnswerKeyForExam(exam_id);
-    
-    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
-
-    const markingSchemes = {
-      DEFAULT: {
-        correct: "1",
-        incorrect: "0",
-        unmarked: "0",
-      },
-    };
-
-    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
-      markingSchemes[sectionName] = {
-        questions: scheme.questions,
-        marking: scheme.marking,
-      };
-    }
-
-    let response = {};
-
-    if (examType === "200mcq" || (examType === "custom" && totalQuestions > 100)) {
-      const firstHalfQuestions = answerKey.slice(0, 100);
-      const secondHalfQuestions = answerKey.slice(100);
-
-      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
-      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
-
-      response = {
-        page_1: evaluationJsonPage1,
-        page_2: evaluationJsonPage2
-      };
-    } else if (examType === "100mcq") {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-      response = {
-        page_1: evaluationJson
-      };
-    } 
-    else if (examType === "custom" && totalQuestions <= 100) {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-      response = {
-        page_1: evaluationJson
-      };
-    } else {
-      throw new Error("Invalid exam type.");
-    }
-
-    return response;
-  } catch (error) {
-    console.error("Error generating evaluation JSON:", error);
     throw error;
   }
 }
@@ -1236,13 +1248,8 @@ module.exports = {
   getExamQuestionDetailsById,
   getStoredResource,
   finalizeResource,
-  getStudentScores,
-  getAnswerKeyRoute,
-  getStudentAttemptRoute,
-  callOMR,
-  getScoreByExamIdRoute,
-  getExamQuestionDetailsRoute,
   createEvaluationJson,
-  getTemplateForExam,
-  getEvaluationJsonForExam,
+  callOMR,
+  fetchStudentScores,
+  uploadExam
 };
