@@ -19,7 +19,6 @@ export default function ViewExamDetails() {
   const [frontSrc, setFrontSrc] = useState("");
   const [backSrc, setBackSrc] = useState("");
   const [answers, setAnswers] = useState([]);
-
   const navigate = useNavigate();
   const location = useLocation();
   const { exam_id } = location.state;
@@ -45,6 +44,10 @@ export default function ViewExamDetails() {
           setExamDetails(data.exam);
           setCanViewExam(data.exam.viewing_options.canViewExam);
           setCanViewAnswers(data.exam.viewing_options.canViewAnswers);
+          if (canViewExam) {
+            console.log("canViewExam", canViewExam);
+            fetchStudentExam(token, data.exam.student_id, canViewAnswers);
+          }
         } else {
           console.error("Failed to fetch exam details");
         }
@@ -53,45 +56,76 @@ export default function ViewExamDetails() {
         console.error("Error fetching exam details:", err);
       }
     };
-
-    const fetchStudentExam = async () => {
+    const base64ToBlob = (base64) => {
+      const byteString = atob(base64);
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      
+      return new Blob([ab], { type: 'image/png' });
+    };
+    const fetchStudentExam = async (token, studentId, canViewAnswers) => {
       try {
-        const token = await getAccessTokenSilently();
-        const front_page_response = await fetch(`/api/exam/fetchStudentExam/${exam_id}`, {
-          method: "POST",
+        const response = await fetch(`/api/images/exam/${exam_id}/student/${studentId}`, {
+          method: "GET",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          credentials: "include",
-          body: JSON.stringify({ page: "front_page.png" }),
         });
-        if (front_page_response.ok) {
-          let blob = await front_page_response.blob();
-          let url = URL.createObjectURL(blob);
-          setFrontSrc(url);
+        if (response.ok) {
+          const data = await response.json();
+          if (!data.images) {
+            console.error("No images found in response");
+            return;
+          }
+          const { images } = data;
+          if (canViewAnswers) {
+            const frontImage = base64ToBlob(images.page1.results);
+            setFrontSrc(URL.createObjectURL(frontImage));
+            if (images.page2) {
+              const backImage = base64ToBlob(images.page2.results);
+              setBackSrc(URL.createObjectURL(backImage));
+            }
+          } else{
+            const originalFrontImgBlob = base64ToBlob(images.page1.original);
+            setFrontSrc(URL.createObjectURL(originalFrontImgBlob));
+            if (images.page2) {
+              const originalBackImgBlob = base64ToBlob(images.page2.original);
+              setBackSrc(URL.createObjectURL(originalBackImgBlob));
+            }
+          }
+          
+
         } else {
-          setFrontSrc(null);
-          console.error("Failed to fetch exam details");
+          console.error("Failed to fetch exam images");
         }
 
-        const back_page_response = await fetch(`/api/exam/fetchStudentExam/${exam_id}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-          body: JSON.stringify({ page: "back_page.png" }),
-        });
-        if (back_page_response.ok) {
-          let blob = await back_page_response.blob();
-          let url = URL.createObjectURL(blob);
-          setBackSrc(url);
-        } else {
-          setBackSrc(null);
-          console.error("Failed to fetch exam details");
-        }   
+
+      //     let blob = await front_page_response.blob();
+      //     let url = URL.createObjectURL(blob);
+      //     setFrontSrc(url);
+
+      //   const back_page_response = await fetch(`/api/exam/fetchStudentExam/${exam_id}`, {
+      //     method: "POST",
+      //     headers: {
+      //       "Content-Type": "application/json",
+      //       Authorization: `Bearer ${token}`,
+      //     },
+      //     credentials: "include",
+      //     body: JSON.stringify({ page: "back_page.png" }),
+      //   });
+      //   if (back_page_response.ok) {
+      //     let blob = await back_page_response.blob();
+      //     let url = URL.createObjectURL(blob);
+      //     setBackSrc(url);
+      //   } else {
+      //     setBackSrc(null);
+      //       console.error("Failed to fetch exam details");
+      //     }   
       } catch (err) {
         console.error("Error fetching exam:", err);
       }
@@ -121,7 +155,6 @@ export default function ViewExamDetails() {
     };
 
     fetchStudentExamDetails();
-    fetchStudentExam();
     fetchSolution();
   }, [getAccessTokenSilently, user.sub, exam_id]);
 
