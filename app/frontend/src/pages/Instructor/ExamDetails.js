@@ -436,7 +436,7 @@ const data = [
                           <TooltipTrigger asChild>
                             <TableRow
                               onClick={() => {
-                                navigate(`/instructor/view-exam`, {
+                                navigate(`/ViewExam`, {
                                   state: {
                                     student_id: result.student_id,
                                     exam_id: examData.exam_id,

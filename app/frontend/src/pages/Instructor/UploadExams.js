@@ -108,14 +108,6 @@ const UploadExam = () => {
             Authorization: `Bearer ${token}`, // Include the token in the request
           },
         }),
-        // fetch("/api/exam/GenerateEvaluation", {
-        //   method: "POST",
-        //   headers: {
-        //     "Content-Type": "application/json",
-        //     Authorization: `Bearer ${token}`, // Include the token in the request
-        //   },
-        //   body: JSON.stringify({ examType, exam_id, numQuestions }), // Pass numQuestions
-        // }),
       ]);
 
       const results = await Promise.all(

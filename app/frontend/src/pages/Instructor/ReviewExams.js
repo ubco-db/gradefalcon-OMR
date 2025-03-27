@@ -102,7 +102,7 @@ const fetchStudentScores = async () => {
   }, [getAccessTokenSilently, exam_id, examType, numQuestions]);
 
   const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids) => {
-    navigate("/instructor/view-exam", {
+    navigate("/ViewExam", {
       state: {
         student_id: studentId,
         exam_id: exam_id,

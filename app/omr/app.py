@@ -285,6 +285,7 @@ def process_results_and_store_images(exam_id):
     page1_dir = os.path.join(out_dir, "page_1")
     page2_dir = os.path.join(out_dir, "page_2")
     
+    
     # Check if output directory exists
     if not os.path.exists(page1_dir):
         app.logger.error(f"Result directory does not exist: {page1_dir}")

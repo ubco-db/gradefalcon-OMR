@@ -11,6 +11,8 @@ DROP TABLE IF EXISTS scannedExam CASCADE;
 DROP TABLE IF EXISTS report CASCADE;
 DROP TABLE IF EXISTS admins CASCADE;
 DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS grade_appeals CASCADE;
+DROP TABLE IF EXISTS session CASCADE;
 
 
 
@@ -122,8 +124,8 @@ CREATE TABLE grade_appeals(
     appeal_time timestamp default now(),
     reply_details JSONB,
     reply_time timestamp,
-    foreign key (exam_id) references exam(exam_id),
-    foreign key (student_id) references student(student_id)
+    foreign key (exam_id) references exam(exam_id) on delete cascade,
+    foreign key (student_id) references student(student_id) on delete cascade
 );
 
 CREATE VIEW student_grade_appeals_view AS
