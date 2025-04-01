@@ -37,6 +37,8 @@ const ExamDetails = () => {
     const fetchExamData = async () => {
       try {
         const token = await getAccessTokenSilently();
+        
+        // Fetch exam details
         const response = await fetch(`/api/exam/getExamDetails/${exam_id}`, {
           method: "GET",
           headers: {
@@ -48,12 +50,13 @@ const ExamDetails = () => {
 
         if (response.ok) {
           const data = await response.json();
-          console.log("data", data);
+          console.log("Exam details:", data);
           setExamData(data);
         } else {
           setError("Failed to fetch exam data");
         }
 
+        // Fetch answer key
         const answersResponse = await fetch(`/api/exam/fetchSolution/${exam_id}`, {
           method: "POST",
           headers: {
@@ -66,7 +69,7 @@ const ExamDetails = () => {
         if (answersResponse.ok) {
           const data = await answersResponse.json();
           setAnswers(data);
-          console.log("answers", data);
+          console.log("Answer key:", data);
         }
       } catch (error) {
         setError("Error fetching exam data");

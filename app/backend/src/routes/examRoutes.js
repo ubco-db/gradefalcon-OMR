@@ -12,12 +12,10 @@ const {
   getExamQuestionDetails,
   saveResults,
   ensureDirectoryExistence,
-  resetOMR,
   getCustomMarkingSchemes,
   generateCustomBubbleSheet,
   getExamDetails,
   getStudentExams,
-  deleteAllFilesInDir,
   getStudentAttempt,
   fetchStudentExam,
   fetchSolution,
@@ -25,6 +23,13 @@ const {
   changeGrade,
   getGradeChangeLog,
   deleteMyExam,
+  getExamQuestionDetailsById,
+  getStoredResource,
+  finalizeResource,
+  createEvaluationJson,
+  callOMR,
+  fetchStudentScores,
+  uploadExam
 } = require("../controllers/examController");
 const { createUploadMiddleware } = require("../middleware/uploadMiddleware");
 const { checkJwt, checkPermissions } = require("../auth0"); // Importing from auth.js
@@ -35,6 +40,12 @@ const { Parser } = require("json2csv");
 const { PDFDocument } = require("pdf-lib");
 const multer = require("multer");
 const { formatWithOptions } = require("util");
+const e = require("express");
+const config = require('../config');
+const pool = require('../utils/db');
+const FormData = require('form-data');
+const fetch = require('node-fetch');
+
 const router = express.Router();
 const combinedUpload = multer().fields([
   { name: 'examKey', maxCount: 1 },
@@ -91,69 +102,9 @@ router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
   }
 });
 
-// Add this route to the examRoutes.js file
 
-router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
-  const { examType, numQuestions } = req.body; // Get examType and numQuestions from the request body
-
-  // Determine the correct file path based on examType and numQuestions
-  const filePath = (examType === "custom" && numQuestions <= 100)
-    ? path.join(__dirname, "../../omr/outputs/page_1/Results/Results.csv")
-    : path.join(__dirname, "../../omr/outputs/combined.csv");
-
-  const results = []; // Array to hold student number and score
-
-  fs.createReadStream(filePath)
-    .pipe(csv())
-    .on("data", (data) => {
-
-      let result = {};
-      if (examType === "custom" && numQuestions <= 100) {
-        // Only grab the front page for custom templates with 100 or fewer questions
-        result = {
-          StudentID: data.StudentID,
-          Score: data.score,
-          front_page: data.file_id, // Grab only the front page
-        };
-      } else {
-        // Handle the case for other types (e.g., 100mcq, 200mcq, custom with more than 100 questions)
-        result = {
-          StudentID: data.StudentID,
-          Score: data.score,
-          front_page: data.front_page_file_id,
-          back_page: data.back_page_file_id,
-        };
-      }
-      // Add question fields
-      Object.keys(data).forEach((key) => {
-        if (key.startsWith("q") && data[key].trim() !== "") {
-          result[key] = data[key];
-        }
-      });
-
-      results.push(result);
-    })
-    .on("end", async () => {
-      try {
-        // Map each result to include the student name
-        const resultsWithNames = await Promise.all(
-          results.map(async (result) => {
-            const studentName = await getStudentNameById(result.StudentID); // Assuming this function exists and returns the student's name
-            return { StudentName: studentName, ...result };
-          })
-        );
-
-        res.json(resultsWithNames); // Send the data including student names as a response
-      } catch (error) {
-        console.error("Error fetching student names:", error);
-        res.status(500).send("Error fetching student names");
-      }
-    })
-    .on("error", (error) => {
-      console.error("Error reading CSV file:", error);
-      res.status(500).send("Error reading CSV file");
-    });
-});
+// Get student scores stored in Flask OMR service for review
+router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), fetchStudentScores);
 
 
 router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
@@ -167,60 +118,61 @@ router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["
     }
 
     const { path: tempFilePath } = req.file;
+    const exam_id = req.body.exam_id; 
 
-    const destinationDir1 = "/code/omr/inputs/page_1";
-    const destinationDir2 = "/code/omr/inputs/page_2";
-    // const singlePageDir = "/code/omr/inputs";
+    if (!exam_id) {
+      fs.unlinkSync(tempFilePath); 
+      return res.status(400).send("Missing exam_id parameter");
+    }
 
     try {
-      const existingPdfBytes = fs.readFileSync(tempFilePath);
-      const examsPDF = await PDFDocument.load(existingPdfBytes);
-      const totalPages = examsPDF.getPageCount();
-      console.log("Total pages:", totalPages);
+      // create FormData object, for sending file
+      const formData = new FormData();
+      formData.append('pdf_file', fs.createReadStream(tempFilePath));
+      formData.append('exam_id', exam_id);
+      
+      // set doubleSide parameter based on exam type
+      const doubleSide = examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq";
+      formData.append('doubleSide', doubleSide.toString());
 
-      if ((examType === "custom" && numQuestions <= 100)) {
-        // Handle 100mcq or custom templates with 100 or fewer questions (1 page)
-        ensureDirectoryExistence(destinationDir1);
-        const examBytes = await examsPDF.save();
-        fs.writeFileSync(path.join(destinationDir1, "exam.pdf"), examBytes);
-        res.json({ message: "Exam uploaded successfully with one page." });
-      } else if (examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq") {
-        // Handle 200mcq or custom templates with more than 100 questions (2 pages)
-        const oddPagesPdf = await PDFDocument.create();
-        const evenPagesPdf = await PDFDocument.create();
-
-        for (let i = 0; i < totalPages; i++) {
-          if ((i + 1) % 2 === 1) {
-            const [pageToCopy] = await oddPagesPdf.copyPages(examsPDF, [i]);
-            oddPagesPdf.addPage(pageToCopy);
-          } else {
-            const [pageToCopy] = await evenPagesPdf.copyPages(examsPDF, [i]);
-            evenPagesPdf.addPage(pageToCopy);
-          }
-        }
-        ensureDirectoryExistence(destinationDir1);
-        ensureDirectoryExistence(destinationDir2);
-
-        const oddBytes = await oddPagesPdf.save();
-        fs.writeFileSync(path.join(destinationDir1, "front_pages.pdf"), oddBytes);
-        const evenBytes = await evenPagesPdf.save();
-        fs.writeFileSync(path.join(destinationDir2, "back_pages.pdf"), evenBytes);
-
-        fs.unlinkSync(tempFilePath); // Clean up the temporary file
-
-        res.json({ message: "Exam uploaded and split successfully." });
-      } else {
-        return res.status(400).send("Invalid exam type or number of questions.");
+      // send request to Flask OMR service split_pdf endpoint
+      const response = await fetch("http://flaskomr:5000/split_pdf", {
+        method: "POST",
+        body: formData
+      });
+      
+      // delete temporary file
+      fs.unlinkSync(tempFilePath);
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(`PDF split failed: ${errorData.error || 'Unknown error'}`);
       }
+      
+      const responseData = await response.json();
+      res.json({ 
+        message: "Exam uploaded successfully", 
+        details: responseData 
+      });
+      
     } catch (error) {
       console.error("Error processing PDF file:", error);
-      res.status(500).send("Error processing PDF file");
+      // ensure temporary file is deleted
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch (unlinkError) {
+        console.error("Error deleting temporary file:", unlinkError);
+      }
+      res.status(500).send(`Error processing PDF file: ${error.message}`);
     }
   });
 });
 
 router.post("/fetchChangelog", checkJwt, checkPermissions(["read:grades"]), getGradeChangeLog);
 
+// TODO: Legacy route for getting results used by examkey, remove when examkey is removed
 router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
   const singlePage = req.body.singlePage;
   const inputDirPath = path.join(__dirname, "../../omr/inputs");
@@ -234,9 +186,6 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
       .on("end", () => {
         // Once file reading is done, send the entire results array as a response
         res.json({ csv_file: results });
-
-        // Delete all files in the input and output directories
-        resetOMR();
       })
 
       .on("error", (error) => {
@@ -262,9 +211,6 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
             const combinedResults = [{ ...resultsPage1[0], ...resultsPage2[0] }];
             // Send the combined results as a response
             res.json({ csv_file: combinedResults });
-
-            // Delete all files in the input and output directories
-            resetOMR();
           })
           .on("error", (error) => {
             console.error("Error reading CSV file from page 2:", error);
@@ -278,68 +224,11 @@ router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async fu
   }
 });
 
-// Save student exams to the backend
-router.post("/saveStudentExams", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
-  // we will be saving whatever is in the omr outputs folder
-  // we just need to figure out where to save which page
-  // recall: a student has their front page and back page in different folders
-  // front page in /outputs/page_1 and back page in /outputs/page_2
-  // data is an array of objects
-  // Object: {Score, StudentID, StudentName, back_page, front_page}
-  // dest: /code/upload/Students/exam_id_${exam_id}/student_id_${student_id}
-  // We will be copying both front & back page to this folder
-  // path for front page: /code/omr/outputs/page_1/CheckedOMRs/colored/${front_page}
-  // path for back page: /code/omr/outputs/page_2/CheckedOMRs/colored/${back_page}
+// Save student exams to the database
+// Removed saveStudentExams route since it's no longer being used
+// All functionality has been consolidated into the saveResults endpoint
 
-  const exam_id = req.body.exam_id;
-  const studentData = req.body.data;
-  const examType = req.body.examType; // Assume you are passing examType in the request body
-  const numQuestions = parseInt(req.body.numQuestions, 10); // Assume you are passing numQuestions in the request body
-
-  try {
-    for (const student of studentData) {
-      const student_id = student.StudentID;
-      const destFilePath = path.join(__dirname, `../../uploads/Students/exam_id_${exam_id}/student_id_${student_id}`);
-
-      const front_page_path = path.join(__dirname, `../../omr/outputs/page_1/CheckedOMRs/colored/${student.front_page}`);
-      const original_front_page_path = path.join(__dirname, `../../omr/inputs/page_1/${student.front_page}`);
-      const front_page_dest = path.join(destFilePath, "front_page.png");
-      const original_front_page_dest = path.join(destFilePath, "original_front_page.png");
-
-      ensureDirectoryExistence(destFilePath);
-
-      try {
-        fs.copyFileSync(front_page_path, front_page_dest);
-        console.log("First page copied successfully");
-        fs.copyFileSync(original_front_page_path, original_front_page_dest);
-        console.log("Original First page copied successfully");
-
-        // Only attempt to copy the back page if it's not a custom exam with 100 or fewer questions
-        if (!(examType === "custom" && numQuestions <= 100)) {
-          const back_page_path = path.join(__dirname, `../../omr/outputs/page_2/CheckedOMRs/colored/${student.back_page}`);
-          const original_back_page_path = path.join(__dirname, `../../omr/inputs/page_2/${student.back_page}`);
-          const back_page_dest = path.join(destFilePath, "back_page.png");
-          const original_back_page_dest = path.join(destFilePath, "original_back_page.png");
-
-          fs.copyFileSync(back_page_path, back_page_dest);
-          console.log("Second page copied successfully");
-          fs.copyFileSync(original_back_page_path, original_back_page_dest);
-          console.log("Original Second page copied successfully");
-        } else {
-          console.log("Skipping back page copy for custom exam with 100 or fewer questions.");
-        }
-      } catch (error) {
-        console.log("Error copying files:", error);
-      }
-    }
-    res.send({ message: "Student exam saved successfully" });
-  } catch (error) {
-    console.error("Error saving student exam:", error);
-    res.status(500).send("Error saving student exam");
-  }
-});
-
-// Save the exam key uploaded by the user
+// TODO: Legacy route for saving exam key used by examkey, remove when examkey is removed
 router.post("/saveExamKey/:examType", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   combinedUpload(req, res, async function (err) {
     if (err) {
@@ -411,7 +300,7 @@ router.post("/saveExamKey/:examType", checkJwt, checkPermissions(["upload:file"]
 
 
 
-// Copy the template JSON file to the shared volume
+// TODO: Legacy route for copying template JSON file to the shared volume, remove when examkey is removed
 router.post("/copyTemplate", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
   console.log("copyTemplate");
   const { examType, keyOrExam, numQuestions, examTitle, classID, courseId } = req.body;
@@ -482,144 +371,13 @@ router.post("/copyTemplate", checkJwt, checkPermissions(["upload:file"]), async 
 });
 
 
-// Generate the evaluation JSON for an exam
-router.post("/GenerateEvaluation", checkJwt, checkPermissions(["create:evaluation"]), async function (req, res) {
-  const { examType, exam_id, numQuestions } = req.body;
-
-  if (!exam_id) {
-    return res.status(400).json({ error: "Missing exam_id" });
-  }
-
-  try {
-    const answerKey = await getAnswerKeyForExam(exam_id);
-    const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
-
-    const markingSchemes = {
-      DEFAULT: {
-        correct: "1",
-        incorrect: "0",
-        unmarked: "0",
-      },
-    };
-
-    for (const [sectionName, scheme] of Object.entries(customMarkingSchemes)) {
-      markingSchemes[sectionName] = {
-        questions: scheme.questions,
-        marking: scheme.marking,
-      };
-    }
-
-    if (examType === "200mcq" || (examType === "custom" && numQuestions > 100)) {
-      const firstHalfQuestions = answerKey.slice(0, 100);
-      const secondHalfQuestions = answerKey.slice(100);
-
-      const evaluationJsonPage1 = createEvaluationJson(firstHalfQuestions, markingSchemes, 1);
-      const evaluationJsonPage2 = createEvaluationJson(secondHalfQuestions, markingSchemes, 101);
-
-      ensureDirectoryExistence("/code/omr/inputs/page_1");
-      ensureDirectoryExistence("/code/omr/inputs/page_2");
-
-      fs.writeFileSync("/code/omr/inputs/page_1/evaluation.json", JSON.stringify(evaluationJsonPage1, null, 2));
-      fs.writeFileSync("/code/omr/inputs/page_2/evaluation.json", JSON.stringify(evaluationJsonPage2, null, 2));
-
-      return res.json({ message: "evaluation.json files created successfully for 200mcq or custom with more than 100 questions" });
-    } else if (examType === "100mcq") {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-
-      ensureDirectoryExistence("/code/omr/inputs/page_2");
-      fs.writeFileSync("/code/omr/inputs/page_2/evaluation.json", JSON.stringify(evaluationJson, null, 2));
-
-      return res.json({ message: "evaluation.json created successfully for 100mcq o" });
-    } 
-    else if (examType === "custom" && numQuestions <= 100) {
-      const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
-
-      ensureDirectoryExistence("/code/omr/inputs/page_1");
-      fs.writeFileSync("/code/omr/inputs/page_1/evaluation.json", JSON.stringify(evaluationJson, null, 2));
-      return res.json({ message: "evaluation.json created successfully for custom with 100 or fewer questions" });
-    } else {
-      return res.status(400).json({ error: "Invalid exam type." });
-    }
-  } catch (error) {
-    console.error("Error in /GenerateEvaluation:", error);
-    return res.status(500).json({ error: "Error generating evaluation file" });
-  }
-});
-
-
-function createEvaluationJson(questions, markingSchemes, questionStartIndex) {
-  return {
-    source_type: "custom",
-    options: {
-      questions_in_order: Array.from({ length: questions.length }, (_, i) => `q${i + questionStartIndex}`),
-      answers_in_order: questions,
-    },
-    outputs_configuration: {
-      should_explain_scoring: true,
-      draw_score: {
-        enabled: true,
-        position: [600, 1100],
-        size: 1.5,
-      },
-      draw_answers_summary: {
-        enabled: true,
-        position: [300, 1200],
-        size: 1.0,
-      },
-      draw_question_verdicts: {
-        enabled: true,
-        verdict_colors: {
-          correct: "#00ff00",
-          neutral: "#ff0000",
-          incorrect: "#ff0000",
-        },
-        verdict_symbol_colors: {
-          positive: "#000000",
-          neutral: "#000000",
-          negative: "#000000",
-        },
-        draw_answer_groups: {
-          enabled: true,
-        },
-      },
-      draw_detected_bubble_texts: {
-        enabled: false,
-      },
-    },
-    marking_schemes: markingSchemes,
-  };
-}
+// GenerateEvaluation removed, use getEvaluationJsonForExam instead
 
 // Call the OMR processing service
-router.post("/callOMR", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
-  console.log("callOMR");
-  try {
-    const response = await fetch("http://flaskomr:5000/process", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-    console.log("OMR Response: ", response);
-    res.send(JSON.stringify("OMR called successfully in /callOMR"));
-  } catch (error) {
-    console.error("Error calling OMR: ", error);
-  }
-});
+router.post("/callOMR/:examId", checkJwt, checkPermissions(["upload:file"]), callOMR);
 
-// Route to fetch the first PNG image in the folder
-router.post("/fetchImage", checkJwt, checkPermissions(["read:image"]), async function (req, res) {
-  const imagesFolderPath = path.join(__dirname, req.body.file_name);
-  console.log(imagesFolderPath);
-  console.log(req.body.file_name);
-  try {
-    // imagesFolderPath = path.resolve(__dirname, `../../uploads/Students/exam_id_5/student_id_1/${filename}`);
-    res.sendFile(imagesFolderPath);
-  } catch (error) {
-    console.error("Error fetching image:", error);
-    res.status(500).send("Error fetching image");
-  }
-});
+// Images are now handled by the imageController
+// The /api/images/exam/:examId/student/:studentId endpoint should be used instead
 
 router.get("/getScoreByExamId/:exam_id", checkJwt, checkPermissions(["read:grades"]), async (req, res) => {
   try {
@@ -692,104 +450,8 @@ router.post("/saveResults", saveResults);
 // Create a CSV file with the following fields:
 // "front_page_id", "back_page_id", "score", "student_id", "question_1", "question_2", ..., "question_100"
 
-router.get("/preprocessingCSV", checkJwt, checkPermissions(["upload:file"]), async (req, res) => {
-  console.log("Hello from preprocessingCSV");
-  const frontPagePath = path.join(__dirname, "../../omr/outputs/page_1/Results/Results.csv");
-  const backPagePath = path.join(__dirname, "../../omr/outputs/page_2/Results/Results.csv");
-  const outputPath = path.join(__dirname, "../../omr/outputs/combined.csv");
-
-  ensureDirectoryExistence(path.join(__dirname, "../../omr/outputs"));
-
-  const frontPageData = [];
-  const backPageData = [];
-
-  // Read front_page.csv
-  fs.createReadStream(frontPagePath)
-    .pipe(csv())
-    .on("data", (data) => {
-      const frontData = {
-        front_page_file_id: data.file_id,
-        FirstName: data.FirstName,
-        LastName: data.LastName,
-        StudentID: data.StudentID,
-        score: data.score,
-      };
-
-      // Add question fields
-      Object.keys(data).forEach((key) => {
-        if (key.startsWith("q")) {
-          frontData[key] = data[key];
-        }
-      });
-
-      frontPageData.push(frontData);
-    })
-    .on("end", () => {
-      // Read back_page.csv
-      fs.createReadStream(backPagePath)
-        .pipe(csv())
-        .on("data", (data) => {
-          const backData = {
-            back_page_file_id: data.file_id,
-            score: data.score,
-          };
-
-          // Add question fields
-          Object.keys(data).forEach((key) => {
-            if (key.startsWith("q")) {
-              backData[key] = data[key];
-            }
-          });
-
-          backPageData.push(backData);
-        })
-        .on("end", () => {
-          // Combine data from both CSV files
-          const combinedData = frontPageData.map((frontData) => {
-            const backData = backPageData.find((back) => back.back_page_file_id.slice(-6) === frontData.front_page_file_id.slice(-6));
-            const combined = {
-              ...frontData,
-              back_page_file_id: backData ? backData.back_page_file_id : null,
-              score: backData && frontData ? parseInt(backData.score, 10) + parseInt(frontData.score, 10) : null,
-            };
-
-            // Combine question fields
-            if (backData) {
-              Object.keys(backData).forEach((key) => {
-                if (key.startsWith("q")) {
-                  combined[key] = backData[key];
-                }
-              });
-            }
-
-            return combined;
-          });
-
-          // Convert combined data to CSV format
-          const json2csvParser = new Parser();
-          const csvData = json2csvParser.parse(combinedData);
-
-          // Save the combined CSV data to a file
-          fs.writeFile(outputPath, csvData, (err) => {
-            if (err) {
-              console.log("Error writing combined.csv:", err);
-              res.status(500).json("Error writing combined.csv");
-            } else {
-              console.log("Combined CSV file saved successfully.");
-              res.status(200).json("Combined CSV file saved successfully.");
-            }
-          });
-        })
-        .on("error", (error) => {
-          console.error("Error reading back_page.csv:", error);
-          res.status(500).json("Error reading back_page.csv");
-        });
-    })
-    .on("error", (error) => {
-      console.error("Error reading front_page.csv:", error);
-      res.status(500).json("Error reading front_page.csv");
-    });
-});
+// This endpoint is no longer needed as the OMR service now handles merging results and storing images
+// The new /student_scores endpoint in the OMR service directly returns the processed data with UUIDs
 
 router.post("/fetchStudentExam/:exam_id", checkJwt, checkPermissions(["read:exam_student"]), fetchStudentExam);
 
@@ -804,5 +466,11 @@ router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function
   console.log("test called");
   res.send(JSON.stringify("Test route called successfully"));
 });
+
+// Get stored resources (PDFs and templates)
+router.get("/resource/:resourceId", checkJwt, getStoredResource);
+
+// Finalize resources (associate staged resources with exam ID and permanently save)
+router.post("/finalizeResource", checkJwt, checkPermissions(['create:exam']), finalizeResource);
 
 module.exports = router;

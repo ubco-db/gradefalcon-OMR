@@ -36,7 +36,7 @@ import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 
 const ManualExamKey = () => {
   const location = useLocation();
-  const { examTitle, classID, courseId, template, numQuestions: initialNumQuestions } = location.state || {};  // Extract numQuestions
+  const { examTitle, classID, courseId, template, numQuestions: initialNumQuestions, templateId } = location.state || {};  // Extract numQuestions
   const [numQuestions, setNumQuestions] = useState(initialNumQuestions || 10);
   const [numOptions, setNumOptions] = useState(5);
   const [totalMarks, setTotalMarks] = useState();
@@ -60,7 +60,7 @@ const ManualExamKey = () => {
   const removeQuestion = (questionNumber, option) => {
     setSelectedOptions((prevOptions) =>
       prevOptions.filter(
-        (question) => question.question !== questionNumber || question.option !== option
+        (question) => !question[`q${questionNumber}`]
       )
     );
   };
@@ -71,26 +71,27 @@ const ManualExamKey = () => {
       event.target.style.backgroundColor = "hsl(var(--primary))";
       event.target.style.color = "white";
       setSelectedOptions((prevOptions) => {
-        if (
-          !prevOptions.some(
-            (question) =>
-              question.question === selection.question && question.option === selection.option
-          )
-        ) {
-          return [...prevOptions, selection];
+        // Check if this question already has an answer
+        const questionKey = `q${selection.question}`;
+        const existingIndex = prevOptions.findIndex(item => questionKey in item);
+        
+        if (existingIndex !== -1) {
+          // Replace existing answer
+          const newOptions = [...prevOptions];
+          newOptions[existingIndex] = { [questionKey]: selection.option };
+          return newOptions;
         } else {
-          return prevOptions;
+          // Add new answer
+          return [...prevOptions, { [questionKey]: selection.option }];
         }
       });
     } else {
       event.target.style.backgroundColor = "";
       event.target.style.color = "";
+      
       setSelectedOptions((prevOptions) => {
-        const newOptions = prevOptions.filter(
-          (question) =>
-            question.question !== selection.question || question.option !== selection.option
-        );
-        return newOptions;
+        const questionKey = `q${selection.question}`;
+        return prevOptions.filter(item => !(questionKey in item));
       });
     }
   };
@@ -115,13 +116,14 @@ const ManualExamKey = () => {
           question: i,
           option: optionSpan.innerText,
         });
+        
         // Check if this option is selected and apply styles
-        if (
-          selectedOptions.some(
-            (question) =>
-              question.question === i && question.option === optionSpan.innerText
-          )
-        ) {
+        const questionKey = `q${i}`;
+        const isSelected = selectedOptions.some(item => 
+          item[questionKey] === optionSpan.innerText
+        );
+        
+        if (isSelected) {
           optionSpan.classList.add("selected");
           optionSpan.style.backgroundColor = "hsl(var(--primary))";
           optionSpan.style.color = "white";
@@ -217,6 +219,7 @@ const ManualExamKey = () => {
           totalMarks: totalMarks,
           markingSchemes: markingSchemes,
           template: template,
+          templateId: templateId,
         }}
       >
         <Button size="icon" className="h-10 w-10">

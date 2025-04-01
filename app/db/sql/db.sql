@@ -11,6 +11,8 @@ DROP TABLE IF EXISTS scannedExam CASCADE;
 DROP TABLE IF EXISTS report CASCADE;
 DROP TABLE IF EXISTS admins CASCADE;
 DROP TABLE IF EXISTS sessions CASCADE;
+DROP TABLE IF EXISTS grade_appeals CASCADE;
+DROP TABLE IF EXISTS session CASCADE;
 
 
 
@@ -22,6 +24,7 @@ CREATE TABLE instructor (
     name text not null
 );
 
+-- TODO: add term information, remove unique constraint
 CREATE TABLE classes (
     class_id serial primary key,
     instructor_id text,
@@ -37,7 +40,7 @@ CREATE TABLE student (
     email text unique,
     name text
 );
-
+-- TODO: store pdf template in database
 CREATE TABLE exam (
     exam_id serial primary key,
     class_id int not null,
@@ -45,6 +48,7 @@ CREATE TABLE exam (
     total_questions int,
     total_marks int,
     template text,
+    template_file JSONB,
     mean double precision,
     high double precision,
     low double precision,
@@ -81,8 +85,10 @@ CREATE TABLE studentResults(
     initial_chosen_answers JSONB, -- This field will store the initial record chosen answers as scanned
     grade int,
     grade_changelog text[],
+    image_uuids JSONB DEFAULT '{}', -- Store UUIDs in format {page1: {original: uuid, results: uuid}, page2: {original: uuid, results: uuid}}
     foreign key (exam_id) references exam(exam_id),
-    foreign key (student_id) references student(student_id)
+    foreign key (student_id) references student(student_id),
+    UNIQUE (student_id, exam_id) -- Add unique constraint for UPSERT operations
 );
 
 -- Trigger to copy chosen_answers to updated_chosen_answers on first insert
@@ -118,8 +124,8 @@ CREATE TABLE grade_appeals(
     appeal_time timestamp default now(),
     reply_details JSONB,
     reply_time timestamp,
-    foreign key (exam_id) references exam(exam_id),
-    foreign key (student_id) references student(student_id)
+    foreign key (exam_id) references exam(exam_id) on delete cascade,
+    foreign key (student_id) references student(student_id) on delete cascade
 );
 
 CREATE VIEW student_grade_appeals_view AS

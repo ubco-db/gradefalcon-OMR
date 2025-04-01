@@ -27,30 +27,34 @@ const ExamControls = () => {
     examMaxAppeals,
     template,
     markingSchemes = [],
+    templateId,
   } = location.state || {};
   const { toast } = useToast();
 
   // State variables for toggle buttons
   const [canViewExam, setCanViewExam] = useState(false);
   const [canViewAnswers, setCanViewAnswers] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const handleConfirm = async (event) => {
     event.preventDefault();
+    setLoading(true);
 
-      // Log the data being sent to the server
-  console.log("Sending the following data to the server:", {
-    classID,
-    examTitle,
-    questions,
-    numQuestions,
-    totalMarks,
+    // Log the data being sent to the server
+    console.log("Sending the following data to the server:", {
+      classID,
+      examTitle,
+      questions,
+      numQuestions,
+      totalMarks,
     examMaxAppeals,
-    markingSchemes,
-    template,
-    canViewExam,
-    canViewAnswers,
-  });
-  
+      markingSchemes,
+      template,
+      canViewExam,
+      canViewAnswers,
+      templateId,
+    });
+
     try {
       const token = await getAccessTokenSilently(); // Get the token
       const response = await fetch("/api/exam/saveQuestions", {
@@ -70,6 +74,7 @@ const ExamControls = () => {
           template: template,
           canViewExam: canViewExam,
           canViewAnswers: canViewAnswers,
+          templateId: templateId,
         }),
       });
       console.log(response);
@@ -87,6 +92,8 @@ const ExamControls = () => {
         } else {
           console.log("Response was not JSON");
         }
+        setLoading(false);
+        navigate("/dashboard", { state: { success: true, message: "Exam created successfully!" } });
       } else {
         console.error("Failed to save questions and marking schemes");
         toast({
@@ -94,6 +101,7 @@ const ExamControls = () => {
           description: "Failed to save questions and marking schemes.",
           type: "error",
         });
+        setLoading(false);
       }
     } catch (error) {
       console.error("Error:", error);
@@ -102,8 +110,8 @@ const ExamControls = () => {
         description: "An error occurred while saving questions and marking schemes.",
         type: "error",
       });
+      setLoading(false);
     }
-    navigate("/ExamBoard"); // Navigation to ExamBoard page
   };
 
   return (
@@ -148,8 +156,8 @@ const ExamControls = () => {
                   >
                     Back
                   </Button>
-                  <Button size="sm" className="gap-1 green-button" onClick={handleConfirm}>
-                    Confirm
+                  <Button size="sm" className="gap-1 green-button" onClick={handleConfirm} disabled={loading}>
+                    {loading ? "Processing..." : "Confirm"}
                   </Button>
                 </div>
               </CardContent>

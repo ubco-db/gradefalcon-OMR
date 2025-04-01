@@ -138,9 +138,9 @@ const NewClass = () => {
             courseName,
             courseId,
             students: val.map((row) => ({
-              studentID: row[1],
-              studentName: row[0],
-              studentEmail: row[2],
+              studentID: row[1].trim(),
+              studentName: row[0].trim(),
+              studentEmail: row[2].trim(),
             })),
           }),
         });

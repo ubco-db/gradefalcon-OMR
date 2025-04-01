@@ -18,12 +18,12 @@ const OMRProcessingUpload = () => {
     console.log("Running OMR");
     try {
       const token = await getAccessTokenSilently(); // Get the token
-      const response = await fetch("/api/exam/callOMR", {
+      const response = await fetch(`/api/exam/callOMR/${exam_id}`, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${token}`, // Include the token in the request
+          "Authorization": `Bearer ${token}` // Include the token in the request
         },
-        credentials: "include",
+        credentials: "include"
       });
       const data = await response.json();
       console.log("response", response);

@@ -37,7 +37,7 @@ RUN apt-get update && apt-get install -y \
 
 # check every 30s to ensure this service returns HTTP 200
 HEALTHCHECK --interval=30s \
-  CMD node healthcheck.js
+  CMD node src/healthcheck.js
 
 # copy in our source code last, as it changes the most
 COPY . /code

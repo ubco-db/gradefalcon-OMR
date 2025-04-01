@@ -1,3 +1,4 @@
+// TODO: fit new custom options setting: array of question options (["MCQ4","MCQ4","MCQ4","TF"])
 import React, { useState, useEffect } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -6,7 +7,7 @@ import { useAuth0 } from "@auth0/auth0-react"; // Import Auth0
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "./ui/card";
 import {ArrowDownIcon} from "@heroicons/react/20/solid";
 
-const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, onOptionsChange }) => {
+const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, onOptionsChange, onTemplateIdChange }) => {
   const { getAccessTokenSilently } = useAuth0(); // Get the token
   const [numQuestions, setNumQuestions] = useState(10);
   const [numOptions, setNumOptions] = useState(4);
@@ -39,6 +40,13 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
 
       if (!response.ok) {
         throw new Error("Failed to generate PDF");
+      }
+
+      // Get templateId from response headers
+      const templateId = response.headers.get('X-Template-Id');
+      console.log("templateId", templateId);
+      if (templateId && onTemplateIdChange) {
+        onTemplateIdChange(templateId);
       }
 
       const blob = await response.blob();

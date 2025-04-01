@@ -37,13 +37,13 @@ const fetchStudentScores = async () => {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify({ examType, numQuestions }), // Send examType and numQuestions in the request body
+    body: JSON.stringify({ examType, numQuestions, exam_id }), // Send examType, numQuestions and exam_id in the request body
   });
   if (!response.ok) {
     throw new Error("Network response was not ok");
   }
   const data = await response.json();
-  console.log("data", data);
+  console.log("Student scores data with image UUIDs:", data);
   setStudentScores(data);
 };
 
@@ -52,19 +52,19 @@ const fetchStudentScores = async () => {
     const fetchData = async () => {
       try {
         // Preprocess the data, but only if examType is not custom or numQuestions > 100
-        const preprocessData = async () => {
-          const token = await getAccessTokenSilently();
-          const response = await fetch("/api/exam/preprocessingCSV", {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          if (!response.ok) {
-            throw new Error("Network response was not ok");
-          }
-          const data = await response.json();
-          console.log("preprocessData", data);
-        };
+        // const preprocessData = async () => {
+        //   const token = await getAccessTokenSilently();
+        //   const response = await fetch("/api/exam/preprocessingCSV", {
+        //     headers: {
+        //       Authorization: `Bearer ${token}`,
+        //     },
+        //   });
+        //   if (!response.ok) {
+        //     throw new Error("Network response was not ok");
+        //   }
+        //   const data = await response.json();
+        //   console.log("preprocessData", data);
+        // };
   
         // Fetch the max marks for the exam
         const fetchTotalScore = async () => {
@@ -85,8 +85,8 @@ const fetchStudentScores = async () => {
   
         // Only run preprocessingCSV if the examType is not custom or if numQuestions > 100
         if (!(examType === "custom" && numQuestions <= 100)) {
-          console.log("Preprocessing data...");
-          await preprocessData();
+          // console.log("Preprocessing data...");
+          // await preprocessData();
         }
 
         await fetchStudentScores();
@@ -101,67 +101,69 @@ const fetchStudentScores = async () => {
     fetchData();
   }, [getAccessTokenSilently, exam_id, examType, numQuestions]);
 
-  const handleViewClick = (studentId, front_page, back_page, student_name, grade) => {
+  const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids) => {
     navigate("/ViewExam", {
       state: {
         student_id: studentId,
         exam_id: exam_id,
-        front_page: `../../omr/outputs/page_1/CheckedOMRs/colored/${front_page}`,
-        back_page: `../../omr/outputs/page_2/CheckedOMRs/colored/${back_page}`,
-        original_front_page: `../../omr/inputs/page_1/${front_page}`,
-        original_back_page: `../../omr/inputs/page_2/${back_page}`,
         student_name: student_name,
         grade: grade,
         total_marks: totalMarks,
         reviewExams: true,
+        chosen_answers: chosen_answers,
+        image_uuids: image_uuids, // Pass the image UUIDs to ViewExam.js
       },
     });
   };
 
-  const handleScoreChange = (e, studentId) => {
+  const handleScoreChange = (e, index) => {
     const newScore = e.target.value;
-    setStudentScores((currentScores) =>
-      currentScores.map((score) => (score.StudentID === studentId ? { ...score, Score: newScore } : score))
-    );
+    setStudentScores((currentScores) => {
+      const newScores = [...currentScores];
+      newScores[index] = { ...newScores[index], Score: newScore };
+      return newScores;
+    });
   };
 
-  const saveStudentExams = async (studentData) => {
-    try {
-      const token = await getAccessTokenSilently();
-      const response = await fetch("/api/exam/saveStudentExams", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ exam_id: exam_id, data: studentData, examType, numQuestions }),
-      });
-      if (!response.ok) {
-        throw new Error("saveExams Network response was not ok");
-      }
-      const data = await response.json();
-      console.log("saveStudentExams:", data);
-    } catch (error) {
-      console.error("Error saving student exams:", error);
-    }
+  const handleStudentIdChange = (e, index) => {
+    const newStudentId = e.target.value;
+    setStudentScores((currentScores) => {
+      const newScores = [...currentScores];
+      newScores[index] = { ...newScores[index], StudentID: newStudentId };
+      return newScores;
+    });
   };
 
   const saveResults = async () => {
     try {
-      saveStudentExams(studentScores);
-
+      // No need to call saveStudentExams here as we'll save all data in one request
       const token = await getAccessTokenSilently();
+      
+      // Ensure student scores have the right structure
+      const formattedScores = studentScores.map(student => ({
+        ...student,
+        // Ensure Score is a string for consistency
+        Score: student.Score?.toString() || "0"
+      }));
+      console.log("formattedScores", formattedScores);
       const response = await fetch("/api/exam/saveResults", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ studentScores, exam_id }),
+        body: JSON.stringify({ 
+          studentScores: formattedScores, 
+          exam_id,
+          examType,
+          numQuestions
+        }),
       });
+      
       if (!response.ok) {
         throw new Error("save results Network response was not ok");
       }
+      
       const data = await response.json();
       toast({
         title: "Results saved! Redirecting...",
@@ -206,14 +208,21 @@ const fetchStudentScores = async () => {
                 {filteredScores.map((student, index) => (
                   <TableRow key={index}>
                     <TableCell>{student.StudentName}</TableCell>
-                    <TableCell>{student.StudentID}</TableCell>
+                    <TableCell>
+                      <Input
+                        type="text"
+                        value={student.StudentID}
+                        onChange={(e) => handleStudentIdChange(e, index)}
+                        className="w-32 px-2 py-1"
+                      />
+                    </TableCell>
                     <TableCell>
                       <Input
                         type="number"
                         value={student.Score}
                         max={totalMarks}
                         min="0"
-                        onChange={(e) => handleScoreChange(e, student.StudentID)}
+                        onChange={(e) => handleScoreChange(e, index)}
                         className="w-16 px-2 py-1"
                       />
                     </TableCell>
@@ -223,7 +232,7 @@ const fetchStudentScores = async () => {
                         variant="ghost"
                         className="flex items-center justify-center hover:text-primary"
                         onClick={() =>
-                          handleViewClick(student.StudentID, student.front_page, student.back_page, student.StudentName, student.Score)
+                          handleViewClick(student.StudentID, student.StudentName, student.Score, student.chosen_answers, student.image_uuids)
                         }
                       >
                         <EyeIcon className="h-6 w-6" />

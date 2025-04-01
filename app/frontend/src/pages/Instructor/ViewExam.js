@@ -42,7 +42,8 @@ const ViewExam = () => {
     reviewExams,
     answers,
     total_questions,
-    chosen_answers
+    chosen_answers,
+    image_uuids
   } = location.state || {};
   const [frontSrc, setFrontSrc] = useState("");
   const [backSrc, setBackSrc] = useState("");
@@ -59,88 +60,182 @@ const ViewExam = () => {
     grade,
     student_name,
     answers,
-    chosen_answers
+    chosen_answers,
+    image_uuids,
+    reviewExams,
+    exam_id,
+    student_id
   });
 
   useEffect(() => {
-    
     const fetchExam = async () => {
-      const token = await getAccessTokenSilently();
-      if (!student_id) {
-        console.log("Student ID is missing");
+      // Check for required parameters
+      if (!student_id || !exam_id) {
+        console.log("Student ID or Exam ID is missing");
         return;
       }
+
       try {
-        const path = `../../uploads/Students/exam_id_${exam_id}/student_id_${student_id}/`;
-        if (front_page === undefined || back_page === undefined) {
-          // Them being undefined we are accessing them after the results have been saved
-          // This means the images will be accessed from the uploads folder and not the omr
-          front_page = path + "front_page.png";
-          back_page = path + "back_page.png";
-          original_back_page = path + "original_back_page.png";
-          original_front_page = path + "original_front_page.png";
+        const token = await getAccessTokenSilently();
+        
+        // Check if image_uuids were passed directly from ReviewExams or ExamDetails
+        // If image_uuids is passed directly, use it regardless of source
+        if (location.state && location.state.image_uuids) {
+          console.log("Using image_uuids passed from parent component");
+          // Use the passed image_uuids directly if available
+          await processImageUuids(token);
+        } else {
+          // Otherwise, fetch all exam images from the image service API
+          console.log("Fetching images from image service API");
+          const response = await fetch(`/api/images/exam/${exam_id}/student/${student_id}`, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`Failed to fetch images: ${response.status}`);
+          }
+
+          const data = await response.json();
+          
+          // Check if we have images data
+          if (!data.images) {
+            console.error("No images found in response");
+            return;
+          }
+
+          const { images } = data;
+          
+          // Process front page (page1) images
+          if (images.page1) {
+            // Results (marked) image
+            if (images.page1.results) {
+              const frontImgBlob = base64ToBlob(images.page1.results);
+              setFrontSrc(URL.createObjectURL(frontImgBlob));
+            }
+            
+            // Original image
+            if (images.page1.original) {
+              const originalFrontImgBlob = base64ToBlob(images.page1.original);
+              setOriginalFront(URL.createObjectURL(originalFrontImgBlob));
+            }
+          }
+
+          // Process back page (page2) images
+          if (images.page2) {
+            // Results (marked) image
+            if (images.page2.results) {
+              const backImgBlob = base64ToBlob(images.page2.results);
+              setBackSrc(URL.createObjectURL(backImgBlob));
+            }
+            
+            // Original image
+            if (images.page2.original) {
+              const originalBackImgBlob = base64ToBlob(images.page2.original);
+              setOriginalBack(URL.createObjectURL(originalBackImgBlob));
+            }
+          }
         }
-
-        console.log("original_back_page", original_back_page);
-        console.log("original_front_page", original_front_page);
-        console.log("front_page", front_page);
-        console.log("back_page", back_page);
-
-        const back_page_response = await fetch("/api/exam/fetchImage", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ side: "back", file_name: back_page }),
-        });
-        let blob = await back_page_response.blob();
-        let url = URL.createObjectURL(blob);
-        setBackSrc(url);
-
-        const front_page_response = await fetch("/api/exam/fetchImage", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ side: "front", file_name: front_page }),
-        });
-        blob = await front_page_response.blob();
-        url = URL.createObjectURL(blob);
-        setFrontSrc(url);
-
-        const original_back_page_response = await fetch("/api/exam/fetchImage", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ side: "back", file_name: original_back_page }),
-        });
-        blob = await original_back_page_response.blob();
-        url = URL.createObjectURL(blob);
-        setOriginalBack(url);
-
-        const original_front_page_response = await fetch("/api/exam/fetchImage", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ side: "front", file_name: original_front_page }),
-        });
-        blob = await original_front_page_response.blob();
-        url = URL.createObjectURL(blob);
-        setOriginalFront(url);
       } catch (error) {
-        console.error("Failed to fetch exam:", error);
+        console.error("Failed to fetch exam images:", error);
+      }
+    };
+
+    // Process image_uuids passed from ReviewExams or ExamDetails
+    const processImageUuids = async (token) => {
+      if (!location.state || !location.state.image_uuids) {
+        console.log("No image_uuids provided from calling component");
+        return;
+      }
+      
+      const image_uuids = location.state.image_uuids;
+      console.log("Processing image UUIDs:", image_uuids);
+
+      try {
+        // Fetch each image individually using the image service API
+        const fetchImage = async (uuid) => {
+          if (!uuid) return null;
+          
+          const response = await fetch(`/api/images/${uuid}`, {
+            method: "GET",
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          });
+          
+          if (!response.ok) {
+            throw new Error(`Failed to fetch image ${uuid}: ${response.status}`);
+          }
+          
+          const data = await response.json();
+          return data.image;
+        };
+        
+        // Process page1 (front) images
+        if (image_uuids.page1) {
+          // Results (marked) image
+          if (image_uuids.page1.results) {
+            const frontImg = await fetchImage(image_uuids.page1.results);
+            if (frontImg) {
+              const frontImgBlob = base64ToBlob(frontImg);
+              setFrontSrc(URL.createObjectURL(frontImgBlob));
+            }
+          }
+          
+          // Original image
+          if (image_uuids.page1.original) {
+            const originalFrontImg = await fetchImage(image_uuids.page1.original);
+            if (originalFrontImg) {
+              const originalFrontImgBlob = base64ToBlob(originalFrontImg);
+              setOriginalFront(URL.createObjectURL(originalFrontImgBlob));
+            }
+          }
+        }
+        
+        // Process page2 (back) images
+        if (image_uuids.page2) {
+          // Results (marked) image
+          if (image_uuids.page2.results) {
+            const backImg = await fetchImage(image_uuids.page2.results);
+            if (backImg) {
+              const backImgBlob = base64ToBlob(backImg);
+              setBackSrc(URL.createObjectURL(backImgBlob));
+            }
+          }
+          
+          // Original image
+          if (image_uuids.page2.original) {
+            const originalBackImg = await fetchImage(image_uuids.page2.original);
+            if (originalBackImg) {
+              const originalBackImgBlob = base64ToBlob(originalBackImg);
+              setOriginalBack(URL.createObjectURL(originalBackImgBlob));
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Failed to process image UUIDs:", error);
       }
     };
 
     fetchExam();
     fetchChangelog();
-  }, [student_id, getAccessTokenSilently, isAuthenticated]);
+  }, [student_id, exam_id, getAccessTokenSilently, isAuthenticated, reviewExams, location.state]);
+  
+  // Helper function to convert base64 to Blob
+  const base64ToBlob = (base64) => {
+    const byteString = atob(base64);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    
+    return new Blob([ab], { type: 'image/png' });
+  };
 
   const fetchChangelog = async () => {
     const token = await getAccessTokenSilently();
