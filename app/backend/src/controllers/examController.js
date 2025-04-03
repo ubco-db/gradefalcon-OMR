@@ -1220,6 +1220,39 @@ async function getTemplateForExam(examId) {
   }
 }
 
+// fetch students by exam id
+const getStudentsByExamId = async (req, res, next) => {
+  const { examId } = req.params;
+  
+  try {
+    // verify examId is valid
+    if (!examId || isNaN(parseInt(examId, 10))) {
+      return res.status(400).json({ message: "Invalid exam ID" });
+    }
+    
+    // query database to get student information
+    const result = await pool.query(
+      `SELECT student.student_id, student.name
+       FROM student
+       JOIN enrollment ON student.student_id = enrollment.student_id
+       JOIN exam ON enrollment.class_id = exam.class_id
+       WHERE exam.exam_id = $1
+       ORDER BY student.name`,
+      [examId]
+    );
+    
+    // return query result
+    res.status(200).json({
+      students: result.rows,
+      count: result.rows.length
+    });
+    
+  } catch (error) {
+    console.error("Error fetching exam students:", error);
+    next(error);
+  }
+};
+
 module.exports = {
   saveQuestions,
   newExam,
@@ -1251,5 +1284,6 @@ module.exports = {
   createEvaluationJson,
   callOMR,
   fetchStudentScores,
-  uploadExam
+  uploadExam,
+  getStudentsByExamId
 };

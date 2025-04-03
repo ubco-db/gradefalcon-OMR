@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/button";
@@ -6,15 +6,18 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../../components/ui/table";
 import { Input } from "../../components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip";
-import { EyeIcon } from "@heroicons/react/24/solid";
+import { EyeIcon, TrashIcon } from "@heroicons/react/24/solid";
 import { useToast } from "../../components/ui/use-toast";
 import { Toaster } from "../../components/ui/toaster";
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
 import "../../css/App.css";
 
 const ReviewExams = () => {
   const { getAccessTokenSilently } = useAuth0();
   const location = useLocation();
   const [studentScores, setStudentScores] = useState([]);
+  const [initialDataLoaded, setInitialDataLoaded] = useState(false);
+  const [registeredStudents, setRegisteredStudents] = useState([]);
   const [totalMarks, setTotalMarks] = useState();
   const [editStudentId, setEditStudentId] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -22,51 +25,86 @@ const ReviewExams = () => {
   const { exam_id, examType, numQuestions } = location.state || {};
   const navigate = useNavigate();
   const { toast } = useToast();
+  const [studentIdFilter, setStudentIdFilter] = useState({});
+  const [duplicateIds, setDuplicateIds] = useState(new Set());
+  const [notFoundIds, setNotFoundIds] = useState(new Set());
+  const [dropdownOpen, setDropdownOpen] = useState({});
+  const [deletingIndex, setDeletingIndex] = useState(null);
 
-    // Log the values to see if they are being received
-    console.log("Received exam_id:", exam_id);
-    console.log("Received examType:", examType);
-    console.log("Received numQuestions:", numQuestions);
+  // Log the values to see if they are being received
+  console.log("Received exam_id:", exam_id);
+  console.log("Received examType:", examType);
+  console.log("Received numQuestions:", numQuestions);
+
+  // Save current state to localStorage
+  const saveStateToStorage = (data) => {
+    try {
+      localStorage.setItem(`exam_${exam_id}_scores`, JSON.stringify(data));
+    } catch (error) {
+      console.error("Error saving to localStorage:", error);
+    }
+  };
+
+  // Get saved state from localStorage
+  const getStateFromStorage = () => {
+    try {
+      const savedData = localStorage.getItem(`exam_${exam_id}_scores`);
+      return savedData ? JSON.parse(savedData) : null;
+    } catch (error) {
+      console.error("Error loading from localStorage:", error);
+      return null;
+    }
+  };
 
   // Fetch student scores for the exam
-const fetchStudentScores = async () => {
-  const token = await getAccessTokenSilently();
-  const response = await fetch(`/api/exam/studentScores`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ examType, numQuestions, exam_id }), // Send examType, numQuestions and exam_id in the request body
-  });
-  if (!response.ok) {
-    throw new Error("Network response was not ok");
-  }
-  const data = await response.json();
-  console.log("Student scores data with image UUIDs:", data);
-  setStudentScores(data);
-};
+  const fetchStudentScores = async () => {
+    const token = await getAccessTokenSilently();
+    const response = await fetch(`/api/exam/studentScores`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ examType, numQuestions, exam_id }), // Send examType, numQuestions and exam_id in the request body
+    });
+    if (!response.ok) {
+      throw new Error("Network response was not ok");
+    }
+    const data = await response.json();
+    console.log("Student scores data with image UUIDs:", data);
+    
+    // Check for saved state before setting data
+    const savedState = getStateFromStorage();
+    if (savedState && !initialDataLoaded) {
+      console.log("Using saved state from localStorage");
+      setStudentScores(savedState);
+    } else {
+      setStudentScores(data);
+    }
+    
+    setInitialDataLoaded(true);
+  };
 
+  const fetchRegisteredStudents = async () => {
+    const token = await getAccessTokenSilently();
+    const response = await fetch(`/api/exam/students/${exam_id}`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      }
+    });
+    if (!response.ok) {
+      throw new Error("Failed to fetch registered students");
+    }
+    const data = await response.json();
+    console.log("Registered students data:", data);
+    setRegisteredStudents(data.students);
+  };
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        // Preprocess the data, but only if examType is not custom or numQuestions > 100
-        // const preprocessData = async () => {
-        //   const token = await getAccessTokenSilently();
-        //   const response = await fetch("/api/exam/preprocessingCSV", {
-        //     headers: {
-        //       Authorization: `Bearer ${token}`,
-        //     },
-        //   });
-        //   if (!response.ok) {
-        //     throw new Error("Network response was not ok");
-        //   }
-        //   const data = await response.json();
-        //   console.log("preprocessData", data);
-        // };
-  
-        // Fetch the max marks for the exam
         const fetchTotalScore = async () => {
           const token = await getAccessTokenSilently();
           const response = await fetch(`/api/exam/getScoreByExamId/${exam_id}`, {
@@ -75,33 +113,111 @@ const fetchStudentScores = async () => {
             },
           });
           if (!response.ok) {
-            throw new Error("Network response was not ok");
+            throw new Error("Failed to fetch total score");
           }
           console.log("exam_id", exam_id);
           const data = await response.json();
           console.log("totalMarks", data);
           setTotalMarks(data.scores[0]);
         };
-  
-        // Only run preprocessingCSV if the examType is not custom or if numQuestions > 100
-        if (!(examType === "custom" && numQuestions <= 100)) {
-          // console.log("Preprocessing data...");
-          // await preprocessData();
-        }
 
         await fetchStudentScores();
+        await fetchRegisteredStudents();
         await fetchTotalScore();
-  
+
         setResultsCombined(true);
       } catch (error) {
         console.error("Error:", error);
       }
     };
-  
+
     fetchData();
   }, [getAccessTokenSilently, exam_id, examType, numQuestions]);
 
+  // Save to localStorage whenever studentScores changes
+  useEffect(() => {
+    if (initialDataLoaded && studentScores.length > 0) {
+      saveStateToStorage(studentScores);
+    }
+  }, [studentScores, initialDataLoaded]);
+
+  // Check for duplicate and not found student IDs
+  useEffect(() => {
+    // Calculate how many times each student ID is selected
+    const idCounts = {};
+    studentScores.forEach(student => {
+      if (student.StudentID) {
+        idCounts[student.StudentID] = (idCounts[student.StudentID] || 0) + 1;
+      }
+    });
+    
+    // Find duplicate IDs
+    const duplicates = new Set();
+    Object.entries(idCounts).forEach(([id, count]) => {
+      if (count > 1) {
+        duplicates.add(id);
+      }
+    });
+    
+    // Find IDs not in registered students list
+    const notFound = new Set();
+    const registeredIds = new Set(registeredStudents.map(s => s.student_id));
+    studentScores.forEach(student => {
+      if (student.StudentID && !registeredIds.has(student.StudentID)) {
+        notFound.add(student.StudentID);
+      }
+    });
+    
+    setDuplicateIds(duplicates);
+    setNotFoundIds(notFound);
+  }, [studentScores, registeredStudents]);
+
+  const getFilteredStudents = (index, filterValue = "") => {
+    // Start with registered students
+    let students = registeredStudents.map(student => ({
+      id: student.student_id,
+      name: student.name,
+      label: `${student.name} (${student.student_id})`
+    }));
+    
+    // Add current student ID if not in the list
+    const currentStudentId = studentScores[index]?.StudentID;
+    if (currentStudentId && !students.some(s => s.id === currentStudentId)) {
+      students.push({
+        id: currentStudentId,
+        name: "Unknown student",
+        label: `Unknown student (${currentStudentId})`
+      });
+    }
+    
+    // Filter based on input value
+    if (filterValue) {
+      students = students.filter(student => 
+        student.id.toString().includes(filterValue) || 
+        student.label.toLowerCase().includes(filterValue.toLowerCase())
+      );
+    }
+    
+    return students.sort((a, b) => a.label.localeCompare(b.label));
+  };
+  
+  // Get display text for the current student
+  const getStudentDisplayText = (index) => {
+    const student = studentScores[index];
+    if (!student || !student.StudentID) return "";
+    
+    const registeredStudent = registeredStudents.find(s => s.student_id === student.StudentID);
+    if (registeredStudent) {
+      return `${registeredStudent.name} (${registeredStudent.student_id})`;
+    } else {
+      return `Unknown student (${student.StudentID})`;
+    }
+  };
+
   const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids) => {
+    // Save current state before navigating
+    saveStateToStorage(studentScores);
+    
     navigate("/ViewExam", {
       state: {
         student_id: studentId,
@@ -125,27 +241,91 @@ const fetchStudentScores = async () => {
     });
   };
 
-  const handleStudentIdChange = (e, index) => {
-    const newStudentId = e.target.value;
+  const handleStudentIdChange = (newStudentId, index) => {
     setStudentScores((currentScores) => {
       const newScores = [...currentScores];
-      newScores[index] = { ...newScores[index], StudentID: newStudentId };
+      
+      const selectedStudent = registeredStudents.find(s => s.student_id === newStudentId);
+      const studentName = selectedStudent ? selectedStudent.name : "Unknown student";
+      
+      newScores[index] = { 
+        ...newScores[index], 
+        StudentID: newStudentId,
+        StudentName: studentName
+      };
       return newScores;
     });
+    
+    // Reset filter and close dropdown after selection
+    setStudentIdFilter(prev => ({...prev, [index]: ""}));
+    setDropdownOpen(prev => ({...prev, [index]: false}));
+  };
+
+  const handleFilterChange = (value, index) => {
+    setStudentIdFilter(prev => ({
+      ...prev,
+      [index]: value
+    }));
+  };
+  
+  const toggleDropdown = (index, isOpen) => {
+    setDropdownOpen(prev => ({
+      ...prev,
+      [index]: isOpen
+    }));
+  };
+  
+  const handleDeleteRow = (index) => {
+    setDeletingIndex(index);
+    
+    // Confirmation before deletion
+    const confirmDelete = window.confirm("Are you sure you want to delete this exam record?");
+    if (confirmDelete) {
+      setStudentScores(currentScores => {
+        const newScores = [...currentScores];
+        newScores.splice(index, 1);
+        return newScores;
+      });
+      
+      toast({
+        title: "Exam record deleted",
+        description: "The exam record has been removed from the list",
+      });
+    }
+    
+    setDeletingIndex(null);
   };
 
   const saveResults = async () => {
     try {
-      // No need to call saveStudentExams here as we'll save all data in one request
+      // Check for invalid entries
+      if (duplicateIds.size > 0 || notFoundIds.size > 0) {
+        const duplicateList = Array.from(duplicateIds).join(", ");
+        const notFoundList = Array.from(notFoundIds).join(", ");
+        
+        let errorMessage = "Cannot save results due to the following issues:";
+        if (duplicateIds.size > 0) {
+          errorMessage += `\n- Duplicate Student IDs: ${duplicateList}`;
+        }
+        if (notFoundIds.size > 0) {
+          errorMessage += `\n- Unregistered Student IDs: ${notFoundList}`;
+        }
+        
+        alert(errorMessage);
+        return;
+      }
+      
+      // If everything is valid, confirm before saving
+      const confirmSave = window.confirm("Are you sure you want to save these results?");
+      if (!confirmSave) return;
+      
       const token = await getAccessTokenSilently();
       
-      // Ensure student scores have the right structure
       const formattedScores = studentScores.map(student => ({
         ...student,
-        // Ensure Score is a string for consistency
         Score: student.Score?.toString() || "0"
       }));
-      console.log("formattedScores", formattedScores);
+      
       const response = await fetch("/api/exam/saveResults", {
         method: "POST",
         headers: {
@@ -164,10 +344,13 @@ const fetchStudentScores = async () => {
         throw new Error("save results Network response was not ok");
       }
       
-      const data = await response.json();
       toast({
         title: "Results saved! Redirecting...",
       });
+      
+      // Clear saved state after successful save
+      localStorage.removeItem(`exam_${exam_id}_scores`);
+      
       setTimeout(() => {
         navigate("/Examboard");
       }, 2000);
@@ -177,7 +360,10 @@ const fetchStudentScores = async () => {
   };
 
   const filteredScores = searchQuery
-    ? studentScores.filter((student) => student.StudentID.toString().includes(searchQuery))
+    ? studentScores.filter((student) => 
+        student.StudentID.toString().includes(searchQuery) || 
+        (student.StudentName && student.StudentName.toLowerCase().includes(searchQuery.toLowerCase()))
+      )
     : studentScores;
 
   return (
@@ -201,7 +387,7 @@ const fetchStudentScores = async () => {
                   <TableHead>Student Name</TableHead>
                   <TableHead>Student ID</TableHead>
                   <TableHead>Score/ {totalMarks}</TableHead>
-                  <TableHead>View Exam</TableHead>
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -209,12 +395,47 @@ const fetchStudentScores = async () => {
                   <TableRow key={index}>
                     <TableCell>{student.StudentName}</TableCell>
                     <TableCell>
-                      <Input
-                        type="text"
-                        value={student.StudentID}
-                        onChange={(e) => handleStudentIdChange(e, index)}
-                        className="w-32 px-2 py-1"
-                      />
+                      <div className={`relative ${duplicateIds.has(student.StudentID) || notFoundIds.has(student.StudentID) ? 'border-2 border-red-500 rounded' : ''}`}>
+                        <div className="relative">
+                          <Input
+                            type="text"
+                            placeholder="Search student ID..."
+                            value={dropdownOpen[index] ? (studentIdFilter[index] || "") : getStudentDisplayText(index)}
+                            onChange={(e) => handleFilterChange(e.target.value, index)}
+                            onFocus={() => {
+                              toggleDropdown(index, true);
+                              // Reset filter text when focusing, but only if not already typing
+                              if (!studentIdFilter[index]) {
+                                setStudentIdFilter(prev => ({...prev, [index]: ""}));
+                              }
+                            }}
+                            className="w-full"
+                          />
+                          
+                          {dropdownOpen[index] && (
+                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+                              {getFilteredStudents(index, studentIdFilter[index] || "").map((student) => (
+                                <div 
+                                  key={student.id}
+                                  className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
+                                  onClick={() => handleStudentIdChange(student.id, index)}
+                                >
+                                  {student.label}
+                                </div>
+                              ))}
+                              {getFilteredStudents(index, studentIdFilter[index] || "").length === 0 && (
+                                <div className="px-4 py-2 text-gray-500">No students found</div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                        {duplicateIds.has(student.StudentID) && (
+                          <div className="text-xs text-red-500 mt-1">Duplicate student ID</div>
+                        )}
+                        {notFoundIds.has(student.StudentID) && (
+                          <div className="text-xs text-red-500 mt-1">Unregistered student ID</div>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Input
@@ -227,16 +448,27 @@ const fetchStudentScores = async () => {
                       />
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="flex items-center justify-center hover:text-primary"
-                        onClick={() =>
-                          handleViewClick(student.StudentID, student.StudentName, student.Score, student.chosen_answers, student.image_uuids)
-                        }
-                      >
-                        <EyeIcon className="h-6 w-6" />
-                      </Button>
+                      <div className="flex items-center space-x-2">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="flex items-center justify-center hover:text-primary"
+                          onClick={() =>
+                            handleViewClick(student.StudentID, student.StudentName, student.Score, student.chosen_answers, student.image_uuids)
+                          }
+                        >
+                          <EyeIcon className="h-5 w-5" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="flex items-center justify-center hover:text-red-500"
+                          onClick={() => handleDeleteRow(index)}
+                          disabled={deletingIndex === index}
+                        >
+                          <TrashIcon className="h-5 w-5" />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -248,6 +480,14 @@ const fetchStudentScores = async () => {
       <Button onClick={saveResults} className="mt-4 self-end">
         Save Results
       </Button>
+      
+      {/* Click outside to close dropdown */}
+      {Object.values(dropdownOpen).some(value => value) && (
+        <div 
+          className="fixed inset-0 z-0" 
+          onClick={() => setDropdownOpen({})}
+        />
+      )}
     </main>
   );
 };
