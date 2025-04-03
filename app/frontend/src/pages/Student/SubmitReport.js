@@ -77,7 +77,18 @@ const SubmitReport = () => {
     fetchExamsAndReports();
   }, [getAccessTokenSilently]);
 
-  // exam detaisl from selection
+  const base64ToBlob = (base64) => {
+    const byteString = atob(base64);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    
+    for (let i = 0; i < byteString.length; i++) {
+      ia[i] = byteString.charCodeAt(i);
+    }
+    
+    return new Blob([ab], { type: 'image/png' });
+  };
+
   const handleExamChange = async (value) => {
     try {
       const token = await getAccessTokenSilently();
@@ -96,10 +107,11 @@ const SubmitReport = () => {
         setGrade(data.exam.grade);
         setTotalMarks(data.exam.total_marks);
         setStudentAnswers(data.exam.chosen_answers);
-        const fetchSolution = async () => {
+        
+        const fetchSolution = async (examId) => {
           try {
             const token = await getAccessTokenSilently();
-            const response = await fetch(`/api/exam/fetchSolutionAnswers/${data.exam.exam_id}`, {
+            const response = await fetch(`/api/exam/fetchSolutionAnswers/${examId}`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
@@ -117,45 +129,45 @@ const SubmitReport = () => {
             console.error("Error fetching answers:", err);
           }
         };
-        fetchSolution();
+        fetchSolution(data.exam.exam_id);
+        
+        const imageResponse = await fetch(`/api/images/exam/${value}/student/${data.exam.student_id}`, {
+          method: "GET",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        
+        if (imageResponse.ok) {
+          const imageData = await imageResponse.json();
+          if (!imageData.images) {
+            console.error("No images found in response");
+            return;
+          }
+          
+          const { images } = imageData;
+          
+          if (images.page1 && images.page1.results) {
+            const frontImage = base64ToBlob(images.page1.results);
+            setFrontSrc(URL.createObjectURL(frontImage));
+          } else {
+            setFrontSrc(null);
+          }
+          
+          if (images.page2 && images.page2.results) {
+            const backImage = base64ToBlob(images.page2.results);
+            setBackSrc(URL.createObjectURL(backImage));
+          } else {
+            setBackSrc(null);
+          }
+        } else {
+          console.error("Failed to fetch exam images");
+          setFrontSrc(null);
+          setBackSrc(null);
+        }
       } else {
         console.error("Failed to fetch exam details");
-      }
-
-      const frontPageResponse = await fetch(`/api/exam/fetchStudentExam/${value}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
-        body: JSON.stringify({ page: "front_page.png" }),
-      });
-      if (frontPageResponse.ok) {
-        const blob = await frontPageResponse.blob();
-        const url = URL.createObjectURL(blob);
-        setFrontSrc(url);
-      } else {
-        setFrontSrc(null);
-        console.error("No front image found");
-      }
-
-      const backPageResponse = await fetch(`/api/exam/fetchStudentExam/${value}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        credentials: "include",
-        body: JSON.stringify({ page: "back_page.png" }),
-      });
-      if (backPageResponse.ok) {
-        const blob = await backPageResponse.blob();
-        const url = URL.createObjectURL(blob);
-        setBackSrc(url);
-      } else {
-        setBackSrc(null);
-        console.error("No back image found");
       }
     } catch (error) {
       console.error("Error fetching exam details or images:", error);
