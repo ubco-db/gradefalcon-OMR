@@ -22,6 +22,7 @@ services:
       - 80:80
       - 9229:9229
       - 9230:9230
+      - 8080:8080 # Additional port for WebSocket if needed
     volumes:
       - ./backend/src:/code/src:ro
       - ./backend/src/assets:/code/src/assets

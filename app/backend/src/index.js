@@ -1,7 +1,52 @@
 const app = require("./server");
 const { port } = require("./config");
+const http = require('http');
+const { Server } = require('socket.io');
 
-const server = app.listen(port, function() {
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const io = new Server(server, {
+  cors: {
+    origin: "*", // In production, restrict this to your frontend domain
+    methods: ["GET", "POST"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: '/socket.io',
+  transports: ['polling', 'websocket'], // Use polling first for better compatibility
+  allowEIO3: true, // Allow Engine.IO v3 client (needed for some older clients)
+  pingTimeout: 60000, // Increase ping timeout
+  pingInterval: 25000, // Increase ping interval
+  cookie: false // Disable cookies for better compatibility
+});
+
+// Log when server is ready
+io.engine.on("connection_error", (err) => {
+  console.log("Socket.io connection error:", err);
+});
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+  console.log('A user connected:', socket.id);
+  
+  // Join instructor room when they connect
+  socket.on('join-instructor-room', (data) => {
+    socket.join('instructors');
+    console.log(`Instructor ${socket.id} joined instructors room`);
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
+// Make io accessible from other modules
+app.io = io;
+
+// Start the server
+server.listen(port, function() {
   console.log("Webserver is ready");
 });
 
