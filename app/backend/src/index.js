@@ -15,7 +15,7 @@ const io = new Server(server, {
     allowedHeaders: ["Content-Type", "Authorization"]
   },
   path: '/socket.io',
-  transports: ['polling', 'websocket'], // Use polling first for better compatibility
+  transports: ['websocket', 'polling'], // Use polling as backup
   allowEIO3: true, // Allow Engine.IO v3 client (needed for some older clients)
   pingTimeout: 60000, // Increase ping timeout
   pingInterval: 25000, // Increase ping interval

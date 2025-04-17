@@ -18,7 +18,7 @@ export const initializeSocket = () => {
     // Use polling as primary transport for better reliability in Docker
     socket = io(socketUrl, {
       path: '/socket.io',
-      transports: ['polling', 'websocket'], // Use polling first, then try websocket
+      transports: ['websocket', 'polling'], // Use polling as backup
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,

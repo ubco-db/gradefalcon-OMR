@@ -2,6 +2,7 @@ import React from 'react';
 import '@fontsource/inter/latin.css'; // Import the font
 import '../css/App.css'; // Import global styles
 import Sidebar from '../components/Sidebar';
+import RealtimeNotificationProvider from '../components/RealtimeNotificationProvider';
 import { useAuth0 } from "@auth0/auth0-react";
 import { useNavigate} from "react-router-dom";
 import { useLocation, Link } from "react-router-dom";
@@ -49,14 +50,15 @@ const Layout = ({ children }) => {
   const breadcrumbItems = generateBreadcrumbItems();
 
   return (
-    <div 
-      lang="en" 
-      className="antialiased"
-      style={{ 
-        '--font-heading': 'Inter', 
-        '--font-body': 'Inter' 
-      }}
-    >
+    <RealtimeNotificationProvider>
+      <div 
+        lang="en" 
+        className="antialiased"
+        style={{ 
+          '--font-heading': 'Inter', 
+          '--font-body': 'Inter' 
+        }}
+      >
       {shouldDisplayNavBar && <Sidebar handleLogout={handleLogout} />}
       <div className={shouldDisplayNavBar ? "main-content flex-1 p-8 bg-gradient-to-r from-gradient-start to-gradient-end h-full flex-1" : ""}>
         {shouldDisplayNavBar && (
@@ -75,7 +77,8 @@ const Layout = ({ children }) => {
         )}
         {children}
       </div>
-    </div>
+      </div>
+    </RealtimeNotificationProvider>
   );
 };
 

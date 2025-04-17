@@ -3,7 +3,6 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Bookmark, ArrowUpRight, Plus, Search } from "lucide-react";
 import { useToast } from "../../components/ui/use-toast";
-import { initializeSocket, joinInstructorRoom, disconnectSocket } from "../../utils/socketService";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
@@ -52,96 +51,6 @@ export default function Dashboard() {
     }
   };
 
-  // Initialize socket connection and set up listeners
-  useEffect(() => {
-    console.log('Setting up socket connection...');
-    const socket = initializeSocket();
-    
-    // Wait for connection before joining room
-    socket.on('connect', () => {
-      console.log('Socket connected, joining instructor room...');
-      
-      // Join instructor-specific room using Auth0 user ID
-      if (user && user.sub) {
-        // The Auth0 user ID is in the 'sub' field
-        const instructorId = user.sub;
-        console.log('Joining instructor-specific room with ID:', instructorId);
-        joinInstructorRoom({ instructorId });
-      } else {
-        // Fallback to general room if no user ID available
-        joinInstructorRoom();
-      }
-      
-      // Show connection success toast
-      toast({
-        title: "Connected to notification service",
-        description: "You will receive real-time grade appeal notifications",
-        duration: 3000,
-      });
-    });
-    
-    // Listen for new grade appeal notifications
-    socket.on('new-grade-appeal', (data) => {
-      console.log('New grade appeal notification received:', data);
-      
-      // Show toast notification
-      toast({
-        title: "New Grade Appeal",
-        description: `${data.studentName} submitted a grade appeal for ${data.examTitle}`,
-        duration: 10000, // Keep notification visible longer
-        action: (
-          <Button 
-            variant="outline" 
-            size="sm" 
-            onClick={() => navigate(`/ReplyAppeal/${data.gradeAppealId}`)}
-          >
-            View
-          </Button>
-        ),
-      });
-    });
-    
-    // Add a connection error handler
-    socket.on('connect_error', (error) => {
-      console.error('Socket connection error:', error);
-      
-      // Show error toast
-      toast({
-        title: "Connection Error",
-        description: "Failed to connect to notification service. Retrying...",
-        variant: "destructive",
-        duration: 3000,
-      });
-      
-      // Try to reconnect after a delay
-      setTimeout(() => {
-        console.log('Attempting to reconnect...');
-        socket.connect();
-      }, 5000);
-    });
-    
-    // Handle reconnection
-    socket.on('reconnect', (attemptNumber) => {
-      console.log(`Reconnected after ${attemptNumber} attempts`);
-      
-      // Show reconnection success toast
-      toast({
-        title: "Reconnected",
-        description: "Notification service connection restored",
-        duration: 3000,
-      });
-    });
-    
-    // Clean up on unmount
-    return () => {
-      console.log('Cleaning up socket listeners...');
-      socket.off('connect');
-      socket.off('new-grade-appeal');
-      socket.off('connect_error');
-      socket.off('reconnect');
-      // Don't disconnect the socket here to keep it alive for other components
-    };
-  }, [toast, navigate]);
 
   useEffect(() => {
     const fetchSessionInfo = async () => {
