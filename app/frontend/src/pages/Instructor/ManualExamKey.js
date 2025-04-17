@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useLocation, Link } from "react-router-dom";
 import "../../css/App.css";
 import { Button } from "../../components/ui/button";
@@ -19,6 +19,8 @@ import {
   PlusIcon,
   MinusIcon,
   ExclamationCircleIcon,
+  QuestionMarkCircleIcon,
+  ArrowUpTrayIcon,
 } from "@heroicons/react/20/solid";
 import { Label } from "../../components/ui/label";
 import { Form } from "../../components/ui/form";
@@ -33,6 +35,7 @@ import {
 } from "../../components/ui/table";
 import { MultiSelect } from "../../components/ui/multi-select";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
+import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip";
 
 const ManualExamKey = () => {
   const location = useLocation();
@@ -45,6 +48,8 @@ const ManualExamKey = () => {
   const [markingSchemes, setMarkingSchemes] = useState([]);
   const [showCustomSchemeModal, setShowCustomSchemeModal] = useState(false);
   const [showAlert, setShowAlert] = useState(false);
+  const [csvImportAlert, setCsvImportAlert] = useState({ show: false, message: "", type: "" });
+  const fileInputRef = useRef(null);
   const [customScheme, setCustomScheme] = useState({
     questions: [],
     correct: 0,
@@ -193,6 +198,131 @@ const ManualExamKey = () => {
 
   const handleDeleteScheme = (index) => {
     setMarkingSchemes((prev) => prev.filter((_, i) => i !== index));
+  };
+  
+  const handleFileSelect = () => {
+    fileInputRef.current.click();
+  };
+  
+  const processCsvImport = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Check if it's a CSV file
+    if (file.type !== 'text/csv' && !file.name.endsWith('.csv') && !file.name.endsWith('.txt')) {
+      setCsvImportAlert({
+        show: true,
+        message: "Please upload a CSV or TXT file",
+        type: "error"
+      });
+      return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const content = e.target.result;
+        const lines = content.split(/\r\n|\n/).filter(line => line.trim()); // Filter out empty lines
+        
+        // Check if there are more lines than questions
+        let tooManyLines = false;
+        if (lines.length > numQuestions) {
+          tooManyLines = true;
+        }
+        
+        // Validate all answers first
+        const invalidAnswers = [];
+        const validOptions = Array.from({ length: numOptions }, (_, i) => String.fromCharCode(65 + i));
+        
+        for (let i = 0; i < Math.min(lines.length, numQuestions); i++) {
+          const line = lines[i];
+          const cells = line.split(/[,\t ]+/).filter(Boolean);
+          
+          for (const cell of cells) {
+            const answer = cell.trim().toUpperCase();
+            if (!validOptions.includes(answer)) {
+              invalidAnswers.push({
+                line: i + 1,
+                answer: answer
+              });
+            }
+          }
+        }
+        
+        // If there are invalid answers, show error and don't import
+        if (invalidAnswers.length > 0) {
+          const samples = invalidAnswers.slice(0, 3).map(item => 
+            `"${item.answer}" in line ${item.line}`
+          ).join(", ");
+          
+          setCsvImportAlert({
+            show: true,
+            message: `Invalid answers found: ${samples}${invalidAnswers.length > 3 ? ' and more' : ''}. Valid options are ${validOptions.join(', ')}. No answers were imported.`,
+            type: "error"
+          });
+          return;
+        }
+        
+        // Parse valid answers
+        const answers = [];
+        
+        for (let i = 0; i < Math.min(lines.length, numQuestions); i++) {
+          const questionNumber = i + 1;
+          const line = lines[i];
+          const cells = line.split(/[,\t ]+/).filter(Boolean);
+          
+          // For each cell in the line, add it as an answer for this question
+          for (const cell of cells) {
+            const answer = cell.trim().toUpperCase();
+            answers.push({ [`q${questionNumber}`]: answer });
+          }
+        }
+        
+        if (answers.length === 0) {
+          setCsvImportAlert({
+            show: true,
+            message: "No valid answers found in the file",
+            type: "error"
+          });
+          return;
+        }
+        
+        // Update selected options
+        setSelectedOptions(answers);
+        
+        // Show success message with warning if needed
+        let message = `Successfully imported ${answers.length} answers`;
+        if (tooManyLines) {
+          message += `. Note: The file contained ${lines.length} lines but only the first ${numQuestions} questions were imported.`;
+        }
+        
+        setCsvImportAlert({
+          show: true,
+          message: message,
+          type: "success"
+        });
+        
+        // Clear the file input
+        event.target.value = null;
+        
+      } catch (error) {
+        setCsvImportAlert({
+          show: true,
+          message: `Error processing file: ${error.message}`,
+          type: "error"
+        });
+      }
+    };
+    
+    reader.onerror = () => {
+      setCsvImportAlert({
+        show: true,
+        message: "Error reading the file",
+        type: "error"
+      });
+    };
+    
+    reader.readAsText(file);
   };
 
   return (
@@ -354,9 +484,67 @@ const ManualExamKey = () => {
             <CardTitle>Bubble Grid</CardTitle>
             <CardDescription>Select the answers</CardDescription>
           </div>
-          <div className="ml-auto flex items-center gap-1"></div>
+          <div className="ml-auto flex items-center gap-2">
+            <input 
+              type="file" 
+              ref={fileInputRef} 
+              className="hidden" 
+              accept=".csv,.txt"
+              onChange={processCsvImport} 
+            />
+            <div className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={handleFileSelect}
+              >
+                <ArrowUpTrayIcon className="h-3.5 w-3.5" />
+                Import CSV
+              </Button>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button size="icon" variant="ghost" className="h-7 w-7">
+                      <QuestionMarkCircleIcon className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs">
+                    <p>Import a CSV file with answer keys. Format your file with each row containing one answer, without a header row. For example:</p>
+                    <pre className="mt-1 bg-slate-100 p-1 rounded text-xs">
+                      A<br />
+                      B<br />
+                      C<br />
+                      ...
+                    </pre>
+                    <p className="mt-1 text-xs">Each cell will be treated as an answer for a question, in sequence.</p>
+                    <p className="mt-1 text-xs">Multiple answers per question can be included on the same line separated by commas (e.g., "A, B, C").</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="h-[48rem] flex items-center justify-center p-6">
+          {csvImportAlert.show && (
+            <Alert className="absolute top-4 right-4 z-50 max-w-md" variant={csvImportAlert.type === "error" ? "destructive" : "default"}>
+              {csvImportAlert.type === "error" ? (
+                <ExclamationCircleIcon className="h-4 w-4" />
+              ) : (
+                <div className="h-4 w-4 rounded-full bg-green-500"></div>
+              )}
+              <AlertTitle>{csvImportAlert.type === "error" ? "Error" : "Success"}</AlertTitle>
+              <AlertDescription>{csvImportAlert.message}</AlertDescription>
+              <Button 
+                size="sm" 
+                variant="ghost" 
+                className="absolute top-2 right-2 h-6 w-6 p-0"
+                onClick={() => setCsvImportAlert({...csvImportAlert, show: false})}
+              >
+                ×
+              </Button>
+            </Alert>
+          )}
           <ScrollArea className="h-full w-full">
             <Form className="h-full w-full flex items-center justify-center">
               <div className="nested-window w-full">

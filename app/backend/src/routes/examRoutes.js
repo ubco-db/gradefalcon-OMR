@@ -29,7 +29,8 @@ const {
   createEvaluationJson,
   callOMR,
   fetchStudentScores,
-  uploadExam
+  uploadExam,
+  getStudentsByExamId
 } = require("../controllers/examController");
 const { createUploadMiddleware } = require("../middleware/uploadMiddleware");
 const { checkJwt, checkPermissions } = require("../auth0"); // Importing from auth.js
@@ -472,5 +473,7 @@ router.get("/resource/:resourceId", checkJwt, getStoredResource);
 
 // Finalize resources (associate staged resources with exam ID and permanently save)
 router.post("/finalizeResource", checkJwt, checkPermissions(['create:exam']), finalizeResource);
+
+router.get("/students/:examId", checkJwt, checkPermissions(["read:exam_student"]), getStudentsByExamId);
 
 module.exports = router;
