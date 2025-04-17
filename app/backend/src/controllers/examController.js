@@ -48,6 +48,46 @@ const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
   return uuidv4();
 };
 
+/**
+ * Gets the default template JSON for a given template type
+ * @param {string} templateType - The type of template (100mcq or 200mcq)
+ * @returns {Promise<string>} - A JSON string representing the combined template
+ */
+const getDefaultTemplate = async (templateType) => {
+  const templatesDir = path.join(__dirname, '../assets/templates');
+  
+  try {
+    let templateFiles = [];
+    let combinedPages = {};
+    
+    // Get all files matching the template type pattern
+    const files = fs.readdirSync(templatesDir);
+    templateFiles = files.filter(file => 
+      file.startsWith(templateType) && file.endsWith('.json')
+    ).sort(); // Sort to ensure correct order
+    
+    if (templateFiles.length === 0) {
+      throw new Error(`No template files found for type: ${templateType}`);
+    }
+    
+    // Read and combine all template files
+    for (let i = 0; i < templateFiles.length; i++) {
+      const filePath = path.join(templatesDir, templateFiles[i]);
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const templateData = JSON.parse(fileContent);
+      
+      // Page number is 1-indexed 
+      const pageNum = i + 1;
+      combinedPages[`page_${pageNum}`] = templateData;
+    }
+    
+    return JSON.stringify(combinedPages);
+  } catch (error) {
+    console.error(`Error loading default template for ${templateType}:`, error);
+    throw error;
+  }
+};
+
 // New method: Get stored resource (template and PDF)
 const getStoredResource = async (req, res) => {
   const { resourceId } = req.params;
@@ -139,10 +179,14 @@ const saveQuestions = async (req, res, next) => {
     console.log(`Retrieved template ${templateId} from cache`);
     // TODO: templateId also contains pdf path, can save the pdf template to database
     // Remove from cache after retrieval
-  } else if (templateId) {
+  } else if (templateId && template == "custom") {
     console.log(`Template ID ${templateId} provided but not found in cache`);
+  } else if (template != "custom") {
+    // if template is not custom, use the default template
+    templateFile = await getDefaultTemplate(template);
+    console.log("using default template for ", template);
   } else {
-    console.log(`No templateId provided, using template directly from request`);
+    return res.status(400).json({ message: "Invalid template" });
   }
 
   // Ensure examMaxAppeals has a valid value (handle both null and undefined)
@@ -820,6 +864,7 @@ const uploadExam = async (req, res) => {
       // set doubleSide parameter based on exam type
       const doubleSide = examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq";
       formData.append('doubleSide', doubleSide.toString());
+      formData.append('isCustom', examType === "custom");
 
       // send request to Flask OMR service split_pdf endpoint
       const response = await fetch("http://flaskomr:5000/split_pdf", {
@@ -1137,7 +1182,7 @@ async function getEvaluationJsonForExam(exam_id) {
     } else if (examType === "100mcq") {
       const evaluationJson = createEvaluationJson(answerKey, markingSchemes, 1);
       response = {
-        page_1: evaluationJson
+        page_2: evaluationJson
       };
     }
     else if (examType === "custom" && totalQuestions <= 100) {

@@ -526,6 +526,7 @@ def split_pdf():
             return jsonify({"error": "Missing exam_id parameter"}), 400
             
         double_side = request.form.get('doubleSide', 'false').lower() == 'true'
+        is_custom = request.form.get('isCustom', 'false').lower() == 'true'
         
         # use exam_id specific directory
         base_input_dir = "./inputs"
@@ -548,7 +549,7 @@ def split_pdf():
         # process pdf file
         try:
             # call pdf_to_images and get return result
-            results = pdf_to_images(input_dir, input_dir, double_pages=double_side)
+            results = pdf_to_images(input_dir, input_dir, double_pages=double_side, is_custom=is_custom)
             
             # check if processing succeeded
             if not results["success"]:
