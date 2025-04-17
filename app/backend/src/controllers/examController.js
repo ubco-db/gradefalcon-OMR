@@ -151,7 +151,7 @@ const finalizeResource = async (req, res) => {
 };
 
 const saveQuestions = async (req, res, next) => {
-  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId } = req.body;
+  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId, single_choice_only } = req.body;
 
   console.log("Received data:", {
     questions: questions ? "Provided" : "Not provided",
@@ -164,7 +164,8 @@ const saveQuestions = async (req, res, next) => {
     template,
     canViewExam,
     canViewAnswers,
-    templateId
+    templateId,
+    single_choice_only
   });
 
   // Determine template source - from cache or provided in request
@@ -192,6 +193,9 @@ const saveQuestions = async (req, res, next) => {
   // Ensure examMaxAppeals has a valid value (handle both null and undefined)
   const maxAppeals = examMaxAppeals === null || examMaxAppeals === undefined ? 3 : examMaxAppeals;
   
+  // Ensure single_choice_only has a valid value (default to true if not specified)
+  const isSingleChoiceOnly = single_choice_only === undefined ? true : !!single_choice_only;
+  
   try {
     // Create options object
     const options = JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers });
@@ -208,11 +212,15 @@ const saveQuestions = async (req, res, next) => {
 
     const insertedRowId = writeToExam.rows[0].exam_id;
 
-    const writeToSolution = await pool.query("INSERT INTO solution (exam_id, answers, marking_schemes) VALUES ($1, $2, $3)", [
-      insertedRowId,
-      JSON.stringify(questions),
-      JSON.stringify(markingSchemes),
-    ]);
+    const writeToSolution = await pool.query(
+      "INSERT INTO solution (exam_id, answers, marking_schemes, single_choice_only) VALUES ($1, $2, $3, $4)",
+      [
+        insertedRowId,
+        JSON.stringify(questions),
+        JSON.stringify(markingSchemes),
+        isSingleChoiceOnly
+      ]
+    );
 
     res.status(200).json({ message: "Questions and marking schemes saved successfully." });
   } catch (error) {

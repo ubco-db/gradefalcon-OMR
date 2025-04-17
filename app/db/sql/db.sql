@@ -67,6 +67,7 @@ CREATE TABLE solution (
     answers JSONB,
     filepath text,
     marking_schemes JSONB,
+    single_choice_only boolean default true,
     foreign key (exam_id) references exam(exam_id)
 );
 CREATE TABLE enrollment(
