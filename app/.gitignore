@@ -5,3 +5,7 @@ node_modules
 /backend/test-output
 /backend/src/assets/custom
 .DS_Store
+
+# Python bytecode
+*.pyc
+__pycache__/
