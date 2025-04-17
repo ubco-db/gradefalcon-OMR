@@ -107,15 +107,43 @@ const submitGradeAppeal = async (req, res, next) => {
     // Emit socket event for real-time notification
     if (req.app.io) {
       const gradeAppealId = result.rows[0].grade_appeal_id;
-      console.log("sending websocket", gradeAppealId)
-      req.app.io.to('instructors').emit('new-grade-appeal', {
-        gradeAppealId,
-        examId,
-        examTitle,
-        studentId,
-        studentName,
-        timestamp: new Date().toISOString()
-      });
+      console.log("Sending grade appeal notification for appeal ID:", gradeAppealId);
+      
+      // Find the instructor who created this exam
+      const instructorResult = await pool.query(
+        `SELECT c.instructor_id 
+         FROM classes c
+         JOIN exam e ON c.class_id = e.class_id
+         WHERE e.exam_id = $1`,
+        [examId]
+      );
+      
+      if (instructorResult.rows.length > 0) {
+        const instructorId = instructorResult.rows[0].instructor_id;
+        console.log(`Sending notification to instructor ${instructorId} for exam ${examId}`);
+        
+        // Emit to instructor-specific room
+        const instructorRoom = `instructor-${instructorId}`;
+        req.app.io.to(instructorRoom).emit('new-grade-appeal', {
+          gradeAppealId,
+          examId,
+          examTitle,
+          studentId,
+          studentName,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        console.log(`No instructor found for exam ${examId}, sending to general room`);
+        // Fallback to general instructors room if no specific instructor found
+        req.app.io.to('instructors').emit('new-grade-appeal', {
+          gradeAppealId,
+          examId,
+          examTitle,
+          studentId,
+          studentName,
+          timestamp: new Date().toISOString()
+        });
+      }
     }
     
     res.status(200).json({message: "Grade appeal submitted successfully"});

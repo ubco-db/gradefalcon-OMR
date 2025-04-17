@@ -43,10 +43,14 @@ export const initializeSocket = () => {
   return socket;
 };
 
-export const joinInstructorRoom = () => {
+export const joinInstructorRoom = (data = null) => {
   if (socket) {
-    socket.emit('join-instructor-room');
-    console.log('Joined instructor room');
+    socket.emit('join-instructor-room', data);
+    if (data && data.instructorId) {
+      console.log(`Joined instructor room with ID: ${data.instructorId}`);
+    } else {
+      console.log('Joined general instructor room');
+    }
   } else {
     console.warn('Cannot join instructor room: socket not initialized');
   }

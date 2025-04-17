@@ -60,7 +60,17 @@ export default function Dashboard() {
     // Wait for connection before joining room
     socket.on('connect', () => {
       console.log('Socket connected, joining instructor room...');
-      joinInstructorRoom();
+      
+      // Join instructor-specific room using Auth0 user ID
+      if (user && user.sub) {
+        // The Auth0 user ID is in the 'sub' field
+        const instructorId = user.sub;
+        console.log('Joining instructor-specific room with ID:', instructorId);
+        joinInstructorRoom({ instructorId });
+      } else {
+        // Fallback to general room if no user ID available
+        joinInstructorRoom();
+      }
       
       // Show connection success toast
       toast({

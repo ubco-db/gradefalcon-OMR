@@ -31,10 +31,35 @@ io.engine.on("connection_error", (err) => {
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
   
-  // Join instructor room when they connect
+  // Join instructor-specific room when they connect
   socket.on('join-instructor-room', (data) => {
-    socket.join('instructors');
-    console.log(`Instructor ${socket.id} joined instructors room`);
+    if (data && data.instructorId) {
+      const instructorRoom = `instructor-${data.instructorId}`;
+      socket.join(instructorRoom);
+      console.log(`Instructor ${socket.id} joined personal room ${instructorRoom}`);
+    } else {
+      // Fallback to general instructors room
+      socket.join('instructors');
+      console.log(`Instructor ${socket.id} joined general instructors room`);
+    }
+  });
+  
+  // Join exam-specific instructor room
+  socket.on('join-exam-room', (data) => {
+    if (data && data.examId) {
+      const roomName = `exam-${data.examId}`;
+      socket.join(roomName);
+      console.log(`User ${socket.id} joined room ${roomName}`);
+    }
+  });
+  
+  // Leave exam-specific room
+  socket.on('leave-exam-room', (data) => {
+    if (data && data.examId) {
+      const roomName = `exam-${data.examId}`;
+      socket.leave(roomName);
+      console.log(`User ${socket.id} left room ${roomName}`);
+    }
   });
   
   socket.on('disconnect', () => {
