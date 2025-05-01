@@ -19,12 +19,10 @@ module.exports = function(app) {
     "/socket.io",
     createProxyMiddleware({
       target: "http://backend",
-      ws: true, // Enable WebSocket proxying
+      ws: true,
       changeOrigin: true,
-      logLevel: 'debug',
       secure: false,
-      xfwd: true, // Add x-forwarded headers
-      pathRewrite: { '^/socket.io': '/socket.io' }, // Keep path as is
+      xfwd: true,
       onError: (err, req, res) => {
         console.error('WebSocket proxy error:', err);
         if (res && typeof res.sendStatus === 'function') {

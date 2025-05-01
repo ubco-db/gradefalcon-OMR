@@ -4,31 +4,21 @@ let socket;
 
 export const initializeSocket = () => {
   if (!socket) {
-    // Get the base URL from the current window location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    
-    // In Docker, we need to use the backend service name or IP
-    // For local development, we can use the same host
-    // The backend API is already proxied in setupProxy.js, so we can use the same host
     const socketUrl = `${protocol}//${host}`;
-    console.log('Socket URL:', socketUrl);
     
-    // Create socket connection with explicit path and transports
-    // Use polling as primary transport for better reliability in Docker
     socket = io(socketUrl, {
       path: '/socket.io',
-      transports: ['websocket', 'polling'], // Use polling as backup
+      transports: ['websocket', 'polling'],
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 20000,
-      forceNew: true,
-      autoConnect: true
+      timeout: 20000
     });
     
     socket.on('connect', () => {
-      console.log('Connected to WebSocket server');
+      console.log('WebSocket connected');
     });
     
     socket.on('connect_error', (error) => {
@@ -36,7 +26,7 @@ export const initializeSocket = () => {
     });
     
     socket.on('disconnect', () => {
-      console.log('Disconnected from WebSocket server');
+      console.log('WebSocket disconnected');
     });
   }
   
@@ -46,13 +36,8 @@ export const initializeSocket = () => {
 export const joinInstructorRoom = (data = null) => {
   if (socket) {
     socket.emit('join-instructor-room', data);
-    if (data && data.instructorId) {
-      console.log(`Joined instructor room with ID: ${data.instructorId}`);
-    } else {
-      console.log('Joined general instructor room');
-    }
   } else {
-    console.warn('Cannot join instructor room: socket not initialized');
+    console.warn('Cannot join room: socket not initialized');
   }
 };
 

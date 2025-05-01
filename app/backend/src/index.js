@@ -9,47 +9,37 @@ const server = http.createServer(app);
 // Initialize Socket.io
 const io = new Server(server, {
   cors: {
-    origin: "*", // In production, restrict this to your frontend domain
+    origin: "*",
     methods: ["GET", "POST"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"]
   },
   path: '/socket.io',
-  transports: ['websocket', 'polling'], // Use polling as backup
-  allowEIO3: true, // Allow Engine.IO v3 client (needed for some older clients)
-  pingTimeout: 60000, // Increase ping timeout
-  pingInterval: 25000, // Increase ping interval
-  cookie: false // Disable cookies for better compatibility
-});
-
-// Log when server is ready
-io.engine.on("connection_error", (err) => {
-  console.log("Socket.io connection error:", err);
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
 });
 
 // Socket.io connection handling
 io.on('connection', (socket) => {
-  console.log('A user connected:', socket.id);
+  console.log('User connected:', socket.id);
   
-  // Join instructor-specific room when they connect
+  // Join instructor-specific room
   socket.on('join-instructor-room', (data) => {
     if (data && data.instructorId) {
       const instructorRoom = `instructor-${data.instructorId}`;
       socket.join(instructorRoom);
-      console.log(`Instructor ${socket.id} joined personal room ${instructorRoom}`);
+      console.log(`Instructor joined room: ${instructorRoom}`);
     } else {
-      // Fallback to general instructors room
       socket.join('instructors');
-      console.log(`Instructor ${socket.id} joined general instructors room`);
     }
   });
   
-  // Join exam-specific instructor room
+  // Join exam-specific room
   socket.on('join-exam-room', (data) => {
     if (data && data.examId) {
       const roomName = `exam-${data.examId}`;
       socket.join(roomName);
-      console.log(`User ${socket.id} joined room ${roomName}`);
     }
   });
   
@@ -58,7 +48,6 @@ io.on('connection', (socket) => {
     if (data && data.examId) {
       const roomName = `exam-${data.examId}`;
       socket.leave(roomName);
-      console.log(`User ${socket.id} left room ${roomName}`);
     }
   });
   
