@@ -59,13 +59,14 @@ const submitGradeAppeal = async (req, res, next) => {
     const appealCount = parseInt(currentAppeals.rows[0].appeal_count, 10);
 
     const examDetails = await pool.query(
-        `SELECT exam_max_appeals
+        `SELECT exam_max_appeals, exam_title
         FROM exam
         WHERE exam_id = $1`,
     [examId]
     );
 
     const examMaxAppeals = examDetails.rows[0].exam_max_appeals;
+    const examTitle = examDetails.rows[0].exam_title;
 
 
     // Check if the number of appeals exceeds the limit
@@ -94,7 +95,54 @@ const submitGradeAppeal = async (req, res, next) => {
     const result = await pool.query(
         "INSERT INTO grade_appeals (exam_id, student_id, appeal_details) VALUES ($1, $2, $3) RETURNING grade_appeal_id",
         [examId, studentId, JSON.stringify(appealDetails)]
-    )
+    );
+    
+    // Get student name for the notification
+    const studentResult = await pool.query(
+        `SELECT name FROM student WHERE student_id = $1`,
+        [studentId]
+    );
+    const studentName = studentResult.rows[0]?.name || 'Unknown Student';
+    
+    // Send real-time notification to the instructor
+    if (req.app.io) {
+      const gradeAppealId = result.rows[0].grade_appeal_id;
+      
+      // Find the instructor who created this exam
+      const instructorResult = await pool.query(
+        `SELECT c.instructor_id 
+         FROM classes c
+         JOIN exam e ON c.class_id = e.class_id
+         WHERE e.exam_id = $1`,
+        [examId]
+      );
+      
+      if (instructorResult.rows.length > 0) {
+        const instructorId = instructorResult.rows[0].instructor_id;
+        const instructorRoom = `instructor-${instructorId}`;
+        
+        // Send notification to the specific instructor
+        req.app.io.to(instructorRoom).emit('new-grade-appeal', {
+          gradeAppealId,
+          examId,
+          examTitle,
+          studentId,
+          studentName,
+          timestamp: new Date().toISOString()
+        });
+      } else {
+        // Fallback to general instructors room
+        req.app.io.to('instructors').emit('new-grade-appeal', {
+          gradeAppealId,
+          examId,
+          examTitle,
+          studentId,
+          studentName,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+    
     res.status(200).json({message: "Grade appeal submitted successfully"});
 
   } catch (error) {

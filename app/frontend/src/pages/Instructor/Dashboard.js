@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth0 } from "@auth0/auth0-react";
 import { Bookmark, ArrowUpRight, Plus, Search } from "lucide-react";
+import { useToast } from "../../components/ui/use-toast";
 import { Button } from "../../components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/card";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [courseSearchTerm, setCourseSearchTerm] = useState("");
   const [examSearchTerm, setExamSearchTerm] = useState("");
+  const { toast } = useToast();
 
   const navigate = useNavigate();
 
@@ -48,6 +50,7 @@ export default function Dashboard() {
         return "secondary";
     }
   };
+
 
   useEffect(() => {
     const fetchSessionInfo = async () => {

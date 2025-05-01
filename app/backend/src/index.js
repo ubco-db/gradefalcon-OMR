@@ -1,7 +1,66 @@
 const app = require("./server");
 const { port } = require("./config");
+const http = require('http');
+const { Server } = require('socket.io');
 
-const server = app.listen(port, function() {
+// Create HTTP server
+const server = http.createServer(app);
+
+// Initialize Socket.io
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: '/socket.io',
+  transports: ['websocket', 'polling'],
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
+
+// Socket.io connection handling
+io.on('connection', (socket) => {
+  console.log('User connected:', socket.id);
+  
+  // Join instructor-specific room
+  socket.on('join-instructor-room', (data) => {
+    if (data && data.instructorId) {
+      const instructorRoom = `instructor-${data.instructorId}`;
+      socket.join(instructorRoom);
+      console.log(`Instructor joined room: ${instructorRoom}`);
+    } else {
+      socket.join('instructors');
+    }
+  });
+  
+  // Join exam-specific room
+  socket.on('join-exam-room', (data) => {
+    if (data && data.examId) {
+      const roomName = `exam-${data.examId}`;
+      socket.join(roomName);
+    }
+  });
+  
+  // Leave exam-specific room
+  socket.on('leave-exam-room', (data) => {
+    if (data && data.examId) {
+      const roomName = `exam-${data.examId}`;
+      socket.leave(roomName);
+    }
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('User disconnected:', socket.id);
+  });
+});
+
+// Make io accessible from other modules
+app.io = io;
+
+// Start the server
+server.listen(port, function() {
   console.log("Webserver is ready");
 });
 
