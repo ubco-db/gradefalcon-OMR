@@ -207,6 +207,7 @@ def process_omr(exam_id):
     
     templates = data.get('templates')
     evaluation_json = data.get('evaluation_json')
+    single_choice_only = data.get('single_choice_only', True)  # Default to True if not specified
     
     if not templates:
         return jsonify({"error": "Missing templates in request body"}), 400
@@ -258,7 +259,7 @@ def process_omr(exam_id):
 
         # Process results and store images in Cassandra
         app.logger.info(f"Starting to process results and store images for exam_id: {exam_id}")
-        process_results_and_store_images(exam_id)
+        process_results_and_store_images(exam_id, single_choice_only)
         app.logger.info(f"Completed processing results and storing images for exam_id: {exam_id}")
         
         # Process success, update expiry time to 2 hours later
@@ -274,7 +275,7 @@ def process_omr(exam_id):
         app.logger.error(f"OMR Script Exception: {e}")
         return jsonify({"error": str(e)}), 500
 
-def process_results_and_store_images(exam_id):
+def process_results_and_store_images(exam_id, single_choice_only=True):
     """Process OMR results, store images in Cassandra, and create a combined result with UUIDs"""
     # Use exam_id specific directories
     base_input_dir = "./inputs"
@@ -405,10 +406,18 @@ def process_results_and_store_images(exam_id):
             "chosen_answers": {}
         }
         
+        # Initialize multiple answers tracking if single_choice_only is enabled
+        if single_choice_only:
+            student_result["has_multiple_answers"] = []
+        
         # Add page_1 answers
         for key, value in p1_row.items():
             if key.startswith('q') and value.strip():
                 student_result["chosen_answers"][key] = value
+                
+                # Check for multiple answers if single_choice_only is enabled
+                if single_choice_only and len(value.strip()) > 1:
+                    student_result["has_multiple_answers"].append(key)
         
         # If page_2 data exists, find matching row
         if has_page2 and page2_results:
@@ -466,9 +475,21 @@ def process_results_and_store_images(exam_id):
                             # This is a duplicate question on page 2, rename to page2_q*
                             new_key = f"page2_{key}"
                             student_result["chosen_answers"][new_key] = value
+                            
+                            # Check for multiple answers in page 2 duplicate questions
+                            if single_choice_only and len(value.strip()) > 1:
+                                student_result["has_multiple_answers"].append(new_key)
                         else:
                             # This is a new question
                             student_result["chosen_answers"][key] = value
+                            
+                            # Check for multiple answers in page 2 new questions
+                            if single_choice_only and len(value.strip()) > 1:
+                                student_result["has_multiple_answers"].append(key)
+        
+        # Clean up has_multiple_answers if empty
+        if single_choice_only and not student_result["has_multiple_answers"]:
+            del student_result["has_multiple_answers"]
         
         # Add student result to list
         student_results_list.append(student_result)
@@ -488,13 +509,16 @@ def get_student_scores():
     if not exam_id:
         return jsonify({"error": "Missing examId parameter"}), 400
     
+    # Get single_choice_only parameter, default to True
+    single_choice_only = request.args.get('single_choice_only', 'true').lower() == 'true'
+    
     # Use exam_id specific output directory
     out_dir = os.path.join("./outputs", exam_id)
     student_results_path = os.path.join(out_dir, "student_results.json")
     
     if not os.path.exists(student_results_path):
         # If the file doesn't exist, call process_results_and_store_images
-        process_results_and_store_images(exam_id)
+        process_results_and_store_images(exam_id, single_choice_only)
         
         # Check again after processing
         if not os.path.exists(student_results_path):
@@ -526,6 +550,7 @@ def split_pdf():
             return jsonify({"error": "Missing exam_id parameter"}), 400
             
         double_side = request.form.get('doubleSide', 'false').lower() == 'true'
+        is_custom = request.form.get('isCustom', 'false').lower() == 'true'
         
         # use exam_id specific directory
         base_input_dir = "./inputs"
@@ -548,7 +573,7 @@ def split_pdf():
         # process pdf file
         try:
             # call pdf_to_images and get return result
-            results = pdf_to_images(input_dir, input_dir, double_pages=double_side)
+            results = pdf_to_images(input_dir, input_dir, double_pages=double_side, is_custom=is_custom)
             
             # check if processing succeeded
             if not results["success"]:

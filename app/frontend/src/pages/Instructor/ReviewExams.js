@@ -6,10 +6,11 @@ import { Card, CardContent } from "../../components/ui/card";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../../components/ui/table";
 import { Input } from "../../components/ui/input";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip";
-import { EyeIcon, TrashIcon } from "@heroicons/react/24/solid";
+import { EyeIcon, TrashIcon, ExclamationCircleIcon } from "@heroicons/react/24/solid";
 import { useToast } from "../../components/ui/use-toast";
 import { Toaster } from "../../components/ui/toaster";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "../../components/ui/select";
+import { Badge } from "../../components/ui/badge";
 import "../../css/App.css";
 
 const ReviewExams = () => {
@@ -65,7 +66,7 @@ const ReviewExams = () => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ examType, numQuestions, exam_id }), // Send examType, numQuestions and exam_id in the request body
+      body: JSON.stringify({ exam_id }), // Send examType, numQuestions and exam_id in the request body
     });
     if (!response.ok) {
       throw new Error("Network response was not ok");
@@ -214,7 +215,7 @@ const ReviewExams = () => {
     }
   };
 
-  const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids) => {
+  const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids, has_multiple_answers) => {
     // Save current state before navigating
     saveStateToStorage(studentScores);
     
@@ -228,6 +229,7 @@ const ReviewExams = () => {
         reviewExams: true,
         chosen_answers: chosen_answers,
         image_uuids: image_uuids, // Pass the image UUIDs to ViewExam.js
+        has_multiple_answers: has_multiple_answers, // Pass the multiple answers information
       },
     });
   };
@@ -366,6 +368,11 @@ const ReviewExams = () => {
       )
     : studentScores;
 
+  // Check if student has multiple answers
+  const hasMultipleAnswers = (student) => {
+    return student.has_multiple_answers && student.has_multiple_answers.length > 0;
+  };
+
   return (
     <main className="flex flex-col gap-4 p-6">
       <div className="flex justify-between items-center w-full mb-4">
@@ -392,8 +399,31 @@ const ReviewExams = () => {
               </TableHeader>
               <TableBody>
                 {filteredScores.map((student, index) => (
-                  <TableRow key={index}>
-                    <TableCell>{student.StudentName}</TableCell>
+                  <TableRow 
+                    key={index}
+                    className={hasMultipleAnswers(student) ? "bg-yellow-50" : ""}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        {student.StudentName}
+                        {hasMultipleAnswers(student) && (
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Badge variant="outline" className="bg-yellow-100 text-yellow-800 border-yellow-400">
+                                  <ExclamationCircleIcon className="h-3.5 w-3.5 mr-1" />
+                                  Multiple Answers to MCQs
+                                </Badge>
+                              </TooltipTrigger>
+                              <TooltipContent>
+                                <p>This student has selected multiple answers for {student.has_multiple_answers.length} question(s)</p>
+                                <p className="text-xs mt-1">Affected questions: {student.has_multiple_answers.join(", ")}</p>
+                              </TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>
                       <div className={`relative ${duplicateIds.has(student.StudentID) || notFoundIds.has(student.StudentID) ? 'border-2 border-red-500 rounded' : ''}`}>
                         <div className="relative">
@@ -454,7 +484,14 @@ const ReviewExams = () => {
                           variant="ghost"
                           className="flex items-center justify-center hover:text-primary"
                           onClick={() =>
-                            handleViewClick(student.StudentID, student.StudentName, student.Score, student.chosen_answers, student.image_uuids)
+                            handleViewClick(
+                              student.StudentID, 
+                              student.StudentName, 
+                              student.Score, 
+                              student.chosen_answers, 
+                              student.image_uuids,
+                              student.has_multiple_answers
+                            )
                           }
                         >
                           <EyeIcon className="h-5 w-5" />

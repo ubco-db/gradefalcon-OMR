@@ -156,23 +156,6 @@ def correct_perspective(image, corners, target_width=2190, target_height=2970):
     # convert back to PIL format
     return Image.fromarray(cv2.cvtColor(corrected_image, cv2.COLOR_BGR2RGB))
 
-def is_inverted(image):
-    """
-    Check if image is inverted and determine page number based on QR code content
-    Returns (orientation, page_number) tuple, where:
-    - orientation: 1 for normal, -1 for inverted, 0 for unknown
-    - page_number: 1 for first page (QR codes 1-4), 2 for second page (QR codes 5-8), 0 for unknown
-    """
-    width, height = image.size
-    try:
-        # detect QR codes
-        qr_codes = detect_qr_codes(image)
-        
-        # analyze orientation and page number
-        return analyze_orientation_and_page(qr_codes, width, height)
-    except Exception as e:
-        print(f"Error detecting page orientation and number: {e}")
-        return (0, 0)
 
 def process_image(image):
     """
@@ -250,7 +233,7 @@ def validate_and_split_images(images):
     
     return processed_images
 
-def pdf_to_images(input_dir, output_dir, dpi=300, double_pages=False):
+def pdf_to_images(input_dir, output_dir, dpi=300, double_pages=False, is_custom=False):
     """Convert PDF files to images and save in output directory"""
     results = {
         "success": True,
@@ -275,7 +258,10 @@ def pdf_to_images(input_dir, output_dir, dpi=300, double_pages=False):
                                 os.makedirs(page_2_dir, exist_ok=True)
                                 
                                 # process images: correct perspective, resize
-                                processed_images = validate_and_split_images(images)
+                                if is_custom:
+                                    processed_images = validate_and_split_images(images)
+                                else:
+                                    processed_images = images
                                 
                                 for i, image in enumerate(processed_images):
                                     output_filename = f"{os.path.splitext(filename)[0]}_page_{i//2 + 1}.png"
@@ -300,7 +286,7 @@ def pdf_to_images(input_dir, output_dir, dpi=300, double_pages=False):
                                 # process single-sided images
                                 processed_images = []
                                 for image in images:
-                                    corrected_img, _, _ = process_image(image)
+                                    corrected_img, _, _ = process_image(image, is_custom)
                                     processed_images.append(corrected_img)
                                 
                                 for i, image in enumerate(processed_images):

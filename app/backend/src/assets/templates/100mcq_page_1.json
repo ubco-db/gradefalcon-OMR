@@ -6,42 +6,46 @@
       "roll1..8"
       ],
       "FirstName": [
-        "fn1..10"
+        "roll11..20"
       ],
       "LastName": [
-        "ln1..10"
+        "roll21..30"
       ]
   },
     "fieldBlocks": {
-    "StudentID": {
-      "fieldType": "QTYPE_ID",
-      "origin": [ 331, 137.3 ],
-      "fieldLabels": ["roll1..8"],
-      "bubblesGap": 24.3,
-      "labelsGap": 26
-    },
-      "FirstName": {
-        "fieldType": "QTYPE_NAME",
-        "origin": [ 137.3, 411.5 ],
-        "fieldLabels": ["fn1..10"],
+      "StudentID": {
+        "bubbleFieldType": "CUSTOM_ID",
+        "origin": [ 331, 137.3 ],
+        "fieldLabels": ["roll1..8"],
         "bubblesGap": 24.3,
-        "labelsGap": 29
+        "labelsGap": 26,
+        "fieldDetectionType": "BUBBLES_THRESHOLD"
+      },
+      "FirstName": {
+        "bubbleFieldType": "CUSTOM_NAME",
+        "origin": [ 137.3, 411.5 ],
+        "fieldLabels": ["roll11..20"],
+        "bubblesGap": 24.3,
+        "labelsGap": 29,
+        "fieldDetectionType": "BUBBLES_THRESHOLD"
       },
       "LastName": {
-        "fieldType": "QTYPE_NAME",
+        "bubbleFieldType": "CUSTOM_NAME",
         "origin": [ 137, 787 ],
-        "fieldLabels": ["ln1..10"],
+        "fieldLabels": ["roll21..30"],
         "bubblesGap": 24.3,
-        "labelsGap": 29
+        "labelsGap": 29,
+        "fieldDetectionType": "BUBBLES_THRESHOLD"
       }
     },
-    "preProcessors": [
-      {
-      "name": "BorderPreprocessor",
-      "options": {
-      "border_size": 10,
-      "border_color": [255, 255, 255]
-        }
+    "customBubbleFieldTypes": {
+      "CUSTOM_ID": {
+        "direction": "horizontal",
+        "bubbleValues": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+      },
+      "CUSTOM_NAME": {
+        "direction": "horizontal",
+        "bubbleValues": ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z"]
       }
-    ]
+    }
 }
