@@ -32,10 +32,6 @@ const ViewExam = () => {
   let {
     student_id,
     exam_id,
-    front_page,
-    back_page,
-    original_front_page,
-    original_back_page,
     student_name,
     grade,
     total_marks,
@@ -43,7 +39,8 @@ const ViewExam = () => {
     answers,
     total_questions,
     chosen_answers,
-    image_uuids
+    image_uuids,
+    has_multiple_answers
   } = location.state || {};
   const [frontSrc, setFrontSrc] = useState("");
   const [backSrc, setBackSrc] = useState("");
@@ -62,6 +59,7 @@ const ViewExam = () => {
     answers,
     chosen_answers,
     image_uuids,
+    has_multiple_answers,
     reviewExams,
     exam_id,
     student_id
