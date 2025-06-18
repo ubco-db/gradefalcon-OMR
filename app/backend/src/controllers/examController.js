@@ -515,6 +515,7 @@ const fetchStudentScores = async (req, res) =>  {
       return res.status(400).json({ error: "Missing exam_id" });
     }
 
+    // TODO[Longsai]: use env variable for OMR service URL
     // Fetch student scores directly from the OMR service
     const response = await fetch(`http://flaskomr:5000/student_scores?examId=${exam_id}`, {
       method: "GET",
@@ -953,7 +954,7 @@ const getStudentAttempt = async (req, res, next) => {
   }
 };
 
-//
+// TODO[Longsai]: , this function is obsolete
 const fetchStudentExam = async (req, res, next) => {
   const auth0_id = req.auth.sub; // Get the student ID from Auth0 token
   const exam_id = parseInt(req.params.exam_id, 10);
@@ -1306,6 +1307,90 @@ const getStudentsByExamId = async (req, res, next) => {
   }
 };
 
+// export all students' scanned results for one exam as PDFs in zip
+/**
+ * Exports all students' scanned results for a given exam as a ZIP file containing PDFs.
+ * @param {object} req - Express request object, expects examId in req.params.
+ * @param {object} res - Express response object, streams ZIP file to client.
+ * @returns {Promise<void>} Sends a ZIP file or error response.
+ */
+const exportExamScannedResults = async (req, res) => {
+  const { examId } = req.params;
+  
+  try {
+    if (!examId || isNaN(parseInt(examId, 10))) {
+      return res.status(400).json({ message: "Invalid exam ID" });
+    }
+
+    const examQuery = `
+      SELECT e.exam_id, e.exam_title, c.course_id, c.course_name
+      FROM exam e
+      JOIN classes c ON e.class_id = c.class_id
+      WHERE e.exam_id = $1
+    `;
+    const examResult = await pool.query(examQuery, [examId]);
+    
+    if (examResult.rows.length === 0) {
+      return res.status(404).json({ message: "Exam not found" });
+    }
+    
+    const examInfo = examResult.rows[0];
+
+    // get students enrolled in the exam
+    // fetch students and their image UUIDs for the exam
+    const studentsQuery = `
+      SELECT s.student_id, s.name, sr.image_uuids
+      FROM student s
+      JOIN enrollment e ON s.student_id = e.student_id
+      JOIN exam ex ON e.class_id = ex.class_id
+      LEFT JOIN studentResults sr ON s.student_id = sr.student_id AND ex.exam_id = sr.exam_id
+      WHERE ex.exam_id = $1
+      ORDER BY s.name
+    `;
+    const studentsResult = await pool.query(studentsQuery, [examId]);
+    
+    if (studentsResult.rows.length === 0) {
+      return res.status(404).json({ message: "No students found for this exam" });
+    }
+
+    // Call the OMR service to generate the export
+    const exportRequest = {
+      exam_id: examId,
+      exam_title: examInfo.exam_title,
+      course_id: examInfo.course_id,
+      students: studentsResult.rows
+    };
+
+    const response = await fetch("http://flaskomr:5000/export_exam_results", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(exportRequest)
+    });
+
+    if (!response.ok) {
+      const errorData = await response.text();
+      throw new Error(`Export service failed: ${errorData}`);
+    }
+
+    // Stream the ZIP file response back to the client
+    const filename = `exam_${examId}_${examInfo.exam_title.replace(/[^a-zA-Z0-9]/g, '_')}_scanned_results.zip`;
+    
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    // Get the ZIP file as a buffer and send it to the client
+    const zipBuffer = Buffer.from(await response.arrayBuffer());
+    res.setHeader('Content-Length', zipBuffer.length);
+    res.send(zipBuffer);
+
+  } catch (error) {
+    console.error("Error exporting exam scanned results:", error);
+    res.status(500).json({ message: "Failed to export exam scanned results" });
+  }
+};
+
 module.exports = {
   saveQuestions,
   newExam,
@@ -1338,5 +1423,6 @@ module.exports = {
   callOMR,
   fetchStudentScores,
   uploadExam,
-  getStudentsByExamId
+  getStudentsByExamId,
+  exportExamScannedResults
 };

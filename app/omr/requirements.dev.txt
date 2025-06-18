@@ -7,5 +7,6 @@ pre-commit==3.7.0
 pytest-mock==3.14.0
 pytest==8.1.1
 syrupy==4.6.1
+reportlab==4.0.4
 
 

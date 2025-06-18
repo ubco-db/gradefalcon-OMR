@@ -8,7 +8,7 @@ import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from ".
 import { ScrollArea } from "../../components/ui/scroll-area";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip";
 import { ChevronLeftIcon, TableCellsIcon } from "@heroicons/react/20/solid";
-import { FileIcon, BarChartIcon } from "lucide-react";
+import { FileIcon, BarChartIcon, DownloadIcon } from "lucide-react";
 import {
   Drawer,
   DrawerClose,
@@ -98,6 +98,55 @@ const ExamDetails = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
+    }
+  };
+
+  const exportScannedResults = async () => {
+    try {
+      const token = await getAccessTokenSilently();
+      
+      const response = await fetch(`/api/exam/export/${exam_id}`, {
+        method: "GET",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+        },
+        credentials: "include",
+      });
+
+      if (response.ok) {
+        // Get the filename from the response headers
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = `exam_${exam_id}_${examData.exam_title}_scanned_results.zip`;
+        
+        if (contentDisposition) {
+          const filenameMatch = contentDisposition.match(/filename="(.+)"/); 
+          if (filenameMatch) {
+            filename = filenameMatch[1];
+          }
+        }
+
+        // Create blob from response
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+
+        // Create download link
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        link.style.visibility = "hidden";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // Clean up
+        URL.revokeObjectURL(url);
+      } else {
+        const errorData = await response.json();
+        alert(`Export failed: ${errorData.message || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error("Error exporting scanned results:", error);
+      alert("Failed to export scanned results. Please try again.");
     }
   };
 
@@ -287,10 +336,21 @@ const data = [
               <TooltipTrigger asChild>
                 <Button size="sm" variant="outline" className="h-8 gap-1" onClick={exportToCSV}>
                   <FileIcon className="h-4 w-4" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export</span>
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export CSV</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Export results as a CSV file.</TooltipContent>
+            </Tooltip>
+
+            {/* Export Scanned Results Button */}
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="outline" className="h-8 gap-1" onClick={exportScannedResults}>
+                  <DownloadIcon className="h-4 w-4" />
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export Scans</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export scanned PDFs in a ZIP.</TooltipContent>
             </Tooltip>
 
            {/* Drawer for Box Plot */}
