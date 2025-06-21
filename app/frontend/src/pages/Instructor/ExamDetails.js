@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import Plot from "react-plotly.js";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Button } from "../../components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
-import { ScrollArea } from "../../components/ui/scroll-area";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip";
 import { ChevronLeftIcon, TableCellsIcon } from "@heroicons/react/20/solid";
-import { FileIcon, BarChartIcon, DownloadIcon } from "lucide-react";
+import { BarChartIcon, DownloadIcon, FileIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import Plot from "react-plotly.js";
+import { useNavigate, useParams } from "react-router-dom";
+import useExamApi from "../../api/useExamApi";
+import { ExamGridAppealView } from "../../components/ExamGridAppealView";
+import QuestionsTable from "../../components/QuestionsTable";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Drawer,
   DrawerClose,
@@ -19,17 +19,20 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "../../components/ui/drawer";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../components/ui/tooltip";
+import { toast } from "../../components/ui/use-toast";
 import "../../css/App.css";
-import QuestionsTable from "../../components/QuestionsTable";
-import {ExamGridAppealView} from "../../components/ExamGridAppealView";
 
 const ExamDetails = () => {
-  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const { getAccessTokenSilently } = useAuth0();
   const { exam_id } = useParams();
   const [examData, setExamData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [answers, setAnswers] = useState([]);
+  const { exportScannedResults: exportExamScannedResultsApi } = useExamApi();
 
   const navigate = useNavigate();
 
@@ -102,51 +105,13 @@ const ExamDetails = () => {
   };
 
   const exportScannedResults = async () => {
-    try {
-      const token = await getAccessTokenSilently();
-      
-      const response = await fetch(`/api/exam/export/${exam_id}`, {
-        method: "GET",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-        },
-        credentials: "include",
-      });
-
-      if (response.ok) {
-        // Get the filename from the response headers
-        const contentDisposition = response.headers.get('Content-Disposition');
-        let filename = `exam_${exam_id}_${examData.exam_title}_scanned_results.zip`;
-        
-        if (contentDisposition) {
-          const filenameMatch = contentDisposition.match(/filename="(.+)"/); 
-          if (filenameMatch) {
-            filename = filenameMatch[1];
-          }
-        }
-
-        // Create blob from response
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-
-        // Create download link
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = filename;
-        link.style.visibility = "hidden";
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        
-        // Clean up
-        URL.revokeObjectURL(url);
-      } else {
-        const errorData = await response.json();
-        alert(`Export failed: ${errorData.message || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error("Error exporting scanned results:", error);
-      alert("Failed to export scanned results. Please try again.");
+    const result = await exportExamScannedResultsApi(exam_id);
+    if (!result.success) {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to export scanned results.",
+        duration: 3000,
+      })
     }
   };
 
@@ -169,9 +134,6 @@ const ExamDetails = () => {
   const minGrade = Math.min(...grades);
   const maxGrade = Math.max(...grades);
   const meanGrade = (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(2);
-  const q1Grade = grades.sort((a, b) => a - b)[Math.floor(grades.length / 4)];
-  const medianGrade = grades.sort((a, b) => a - b)[Math.floor(grades.length / 2)];
-  const q3Grade = grades.sort((a, b) => a - b)[Math.floor((grades.length * 3) / 4)];
 
   const layout = {
     width: '50%',

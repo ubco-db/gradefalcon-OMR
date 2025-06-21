@@ -478,6 +478,6 @@ router.post("/finalizeResource", checkJwt, checkPermissions(['create:exam']), fi
 router.get("/students/:examId", checkJwt, checkPermissions(["read:exam_student"]), getStudentsByExamId);
 
 // export student graded results and original scanned results (PDFs) for an exam in a zip file 
-router.get("/export/:examId", checkJwt, checkPermissions(["read:exams"]), exportExamScannedResults);
+router.get("/exportScannedResults/:examId", checkJwt, checkPermissions(["read:exams"]), exportExamScannedResults);
 
 module.exports = router;

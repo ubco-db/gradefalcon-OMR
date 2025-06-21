@@ -40,7 +40,51 @@ const useExamApi = () => {
     } catch (err) {
       console.error("Error fetching student exam images:", err);
     }
+  }, [apiClient])
+  
+  const exportScannedResults = useCallback(async (examId, filename = null) => {
+    try {
+      const response = await apiClient(`/api/exam/exportScannedResults/${examId}`, {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        credentials: "include"
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { success: false, error: errorData?.message || "Failed to export scanned results." };
+      }
+
+      const blob = await response.blob();
+      // extract filename from content-disposition header
+      const contentDisposition = response.headers.get("Content-Disposition");
+
+      let downloadName = filename || `exam_${examId}_scanned_results.zip`;
+
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?(.+?)"?$/);
+        if (match && match[1]) {
+          downloadName = match[1];
+        }
+      }
+
+      // trigger download
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = downloadName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      return { success: true };
+    } catch (err) {
+      console.error("Error exporting scanned results:", err);
+    }
   }, [apiClient]);
-  return {fetchStudentExamImages};
+
+  return { fetchStudentExamImages, exportScannedResults };
 }
 export default useExamApi;
