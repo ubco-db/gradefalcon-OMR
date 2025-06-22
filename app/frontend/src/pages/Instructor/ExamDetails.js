@@ -32,47 +32,28 @@ const ExamDetails = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [answers, setAnswers] = useState([]);
-  const { exportScannedResults: exportExamScannedResultsApi } = useExamApi();
+  const { exportScannedResults: exportExamScannedResultsApi,
+    fetchExamDetails: fetchExamDetailsApi } = useExamApi();
 
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchExamData = async () => {
       try {
-        const token = await getAccessTokenSilently();
-        
         // Fetch exam details
-        const response = await fetch(`/api/exam/getExamDetails/${exam_id}`, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log("Exam details:", data);
-          setExamData(data);
+        const examResponse = await fetchExamDetailsApi(exam_id)
+        if (!examResponse.success) {
+          toast({
+            title: "Error: fetch Exam Details",
+            description: examResponse.error || "Failed to fetch exam details.",
+            variant: "destructive"
+          })
+          setError("Failed to fetch exam details.");
         } else {
-          setError("Failed to fetch exam data");
-        }
-
-        // Fetch answer key
-        const answersResponse = await fetch(`/api/exam/fetchSolution/${exam_id}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        });
-
-        if (answersResponse.ok) {
-          const data = await answersResponse.json();
-          setAnswers(data);
-          console.log("Answer key:", data);
+          setExamData(examResponse.data);
+          setAnswers(examResponse.data.answers || []);
+          
+          console.log("Exam Data:", examResponse.data);
         }
       } catch (error) {
         setError("Error fetching exam data");
@@ -141,10 +122,10 @@ const ExamDetails = () => {
     paper_bgcolor: 'rgba(0,0,0,0)',  // Transparent background
     plot_bgcolor: 'rgba(0,0,0,0)',
     margin: {
-      l: 100, 
-      r: 100,  
-      b: 70,  
-      t: 100,  
+      l: 100,
+      r: 100,
+      b: 70,
+      t: 100,
       pad: 4,
     },
     showlegend: false,
@@ -254,7 +235,7 @@ const ExamDetails = () => {
     ],
   };
 
-const data = [
+  const data = [
     {
       x: grades,
       type: "box",
@@ -280,7 +261,7 @@ const data = [
     },
   ];
 
-  
+
 
   return (
     <div className="mx-auto grid max-w-[70rem] flex-1 auto-rows-max gap-8">
@@ -315,7 +296,7 @@ const data = [
               <TooltipContent>Export scanned PDFs in a ZIP.</TooltipContent>
             </Tooltip>
 
-           {/* Drawer for Box Plot */}
+            {/* Drawer for Box Plot */}
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button size="sm" className="h-8 gap-1 text-white" style={{ backgroundColor: "hsl(var(--primary))" }}>
@@ -466,12 +447,21 @@ const data = [
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {answers.map((answer, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{index + 1}</TableCell>
-                      <TableCell>{answer}</TableCell>
-                    </TableRow>
-                  ))}
+                  {answers.map((answerObj, index) => {
+                    const question = Object.keys(answerObj)[0];
+                    let questionLabel = question;
+                    // Remove leading 'q' if present (e.g., 'q1' -> '1')
+                    if (questionLabel.startsWith('q')) {
+                      questionLabel = questionLabel.slice(1);
+                    }
+                    const answer = answerObj[question];
+                    return (
+                      <TableRow key={index}>
+                        <TableCell>{questionLabel}</TableCell>
+                        <TableCell>{answer}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </ScrollArea>

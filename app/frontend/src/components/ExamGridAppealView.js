@@ -18,7 +18,7 @@ export const ExamGridAppealView = ({examId}) => {
     const fetchGradeAppeals = async () => {
       try {
         const response = await fetchExamUnresolvedGradeAppeals(examId)
-        const data = response.data;
+        const data = response?.data;
         setGradeAppeals(data || []);
       } catch (err) {
         console.error("Error fetching exam grade appeals:", err);
