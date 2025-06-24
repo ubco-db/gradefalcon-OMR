@@ -88,14 +88,17 @@ const useGradeAppealApi = () => {
     }
   }, [apiClient]);
 
+
+  // TODO[Longsai]: make the return type consistent and add docstring
   const fetchExamUnresolvedGradeAppeals = useCallback(async (examId) => {
     try {
       const response = await apiClient(`/api/gradeappeal/unresolved/exams/${examId}`, {
         method: "GET",
       });
       if (!response.ok) {
-        throw new Error(`Failed to respond to grade appeal: ${response.status} ${response.statusText}`);
-      }
+        console.error("Failed to fetch unresolved grade appeals:", response.status, response.statusText);
+        return {success: false, error: "Failed to fetch unresolved grade appeals."};
+ }
       return response.json();
     } catch (err) {
       console.error("Error fetching unresolved grade appeals:", err);

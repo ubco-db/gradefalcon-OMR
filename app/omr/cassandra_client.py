@@ -108,3 +108,39 @@ class CassandraClient:
         except Exception as e:
             logger.error(f"Error storing image in Cassandra: {str(e)}")
             return None
+    
+    def get_image(self, image_uuid):
+        """
+        Retrieve an image from Cassandra by UUID
+        
+        Args:
+            image_uuid: UUID string of the image to retrieve
+            
+        Returns:
+            Row object with image_data if successful, None otherwise
+        """
+        if not self.connected:
+            if not self.connect():
+                logger.error("Not connected to Cassandra")
+                return None
+        
+        try:
+            # Convert string UUID to UUID object if needed
+            if isinstance(image_uuid, str):
+                image_uuid = uuid.UUID(image_uuid)
+            
+            # Query image from Cassandra
+            query = "SELECT image_data FROM images WHERE id = %s"
+            result = self.session.execute(query, (image_uuid,))
+            row = result.one()
+            
+            if row:
+                logger.info(f"Image {image_uuid} retrieved from Cassandra")
+                return row
+            else:
+                logger.warning(f"Image {image_uuid} not found in Cassandra")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error retrieving image from Cassandra: {str(e)}")
+            return None

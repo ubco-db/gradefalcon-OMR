@@ -1,14 +1,14 @@
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import Plot from "react-plotly.js";
 import { useAuth0 } from "@auth0/auth0-react";
-import { Button } from "../../components/ui/button";
-import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/card";
-import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
-import { ScrollArea } from "../../components/ui/scroll-area";
-import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip";
 import { ChevronLeftIcon, TableCellsIcon } from "@heroicons/react/20/solid";
-import { FileIcon, BarChartIcon } from "lucide-react";
+import { BarChartIcon, DownloadIcon, FileIcon } from "lucide-react";
+import { useEffect, useState } from "react";
+import Plot from "react-plotly.js";
+import { useNavigate, useParams } from "react-router-dom";
+import useExamApi from "../../api/useExamApi";
+import { ExamGridAppealView } from "../../components/ExamGridAppealView";
+import QuestionsTable from "../../components/QuestionsTable";
+import { Button } from "../../components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
 import {
   Drawer,
   DrawerClose,
@@ -19,57 +19,41 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "../../components/ui/drawer";
+import { ScrollArea } from "../../components/ui/scroll-area";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../../components/ui/table";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../../components/ui/tooltip";
+import { toast } from "../../components/ui/use-toast";
 import "../../css/App.css";
-import QuestionsTable from "../../components/QuestionsTable";
-import {ExamGridAppealView} from "../../components/ExamGridAppealView";
 
 const ExamDetails = () => {
-  const { user, isAuthenticated, getAccessTokenSilently } = useAuth0();
+  const { getAccessTokenSilently } = useAuth0();
   const { exam_id } = useParams();
   const [examData, setExamData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [answers, setAnswers] = useState([]);
+  const { exportScannedResults: exportExamScannedResultsApi,
+    fetchExamDetails: fetchExamDetailsApi } = useExamApi();
 
   const navigate = useNavigate();
 
   useEffect(() => {
     const fetchExamData = async () => {
       try {
-        const token = await getAccessTokenSilently();
-        
         // Fetch exam details
-        const response = await fetch(`/api/exam/getExamDetails/${exam_id}`, {
-          method: "GET",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log("Exam details:", data);
-          setExamData(data);
+        const examResponse = await fetchExamDetailsApi(exam_id)
+        if (!examResponse.success) {
+          toast({
+            title: "Error: fetch Exam Details",
+            description: examResponse.error || "Failed to fetch exam details.",
+            variant: "destructive"
+          })
+          setError("Failed to fetch exam details.");
         } else {
-          setError("Failed to fetch exam data");
-        }
-
-        // Fetch answer key
-        const answersResponse = await fetch(`/api/exam/fetchSolution/${exam_id}`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          credentials: "include",
-        });
-
-        if (answersResponse.ok) {
-          const data = await answersResponse.json();
-          setAnswers(data);
-          console.log("Answer key:", data);
+          setExamData(examResponse.data);
+          setAnswers(examResponse.data.answers || []);
+          
+          console.log("Exam Data:", examResponse.data);
         }
       } catch (error) {
         setError("Error fetching exam data");
@@ -101,6 +85,17 @@ const ExamDetails = () => {
     }
   };
 
+  const exportScannedResults = async () => {
+    const result = await exportExamScannedResultsApi(exam_id);
+    if (!result.success) {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to export scanned results.",
+        duration: 3000,
+      })
+    }
+  };
+
   if (loading) {
     return <div>Loading...</div>;
   }
@@ -120,9 +115,6 @@ const ExamDetails = () => {
   const minGrade = Math.min(...grades);
   const maxGrade = Math.max(...grades);
   const meanGrade = (grades.reduce((a, b) => a + b, 0) / grades.length).toFixed(2);
-  const q1Grade = grades.sort((a, b) => a - b)[Math.floor(grades.length / 4)];
-  const medianGrade = grades.sort((a, b) => a - b)[Math.floor(grades.length / 2)];
-  const q3Grade = grades.sort((a, b) => a - b)[Math.floor((grades.length * 3) / 4)];
 
   const layout = {
     width: '50%',
@@ -130,10 +122,10 @@ const ExamDetails = () => {
     paper_bgcolor: 'rgba(0,0,0,0)',  // Transparent background
     plot_bgcolor: 'rgba(0,0,0,0)',
     margin: {
-      l: 100, 
-      r: 100,  
-      b: 70,  
-      t: 100,  
+      l: 100,
+      r: 100,
+      b: 70,
+      t: 100,
       pad: 4,
     },
     showlegend: false,
@@ -243,7 +235,7 @@ const ExamDetails = () => {
     ],
   };
 
-const data = [
+  const data = [
     {
       x: grades,
       type: "box",
@@ -269,7 +261,7 @@ const data = [
     },
   ];
 
-  
+
 
   return (
     <div className="mx-auto grid max-w-[70rem] flex-1 auto-rows-max gap-8">
@@ -287,13 +279,24 @@ const data = [
               <TooltipTrigger asChild>
                 <Button size="sm" variant="outline" className="h-8 gap-1" onClick={exportToCSV}>
                   <FileIcon className="h-4 w-4" />
-                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export</span>
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export CSV</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>Export results as a CSV file.</TooltipContent>
             </Tooltip>
 
-           {/* Drawer for Box Plot */}
+            {/* Export Scanned Results Button */}
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="outline" className="h-8 gap-1" onClick={exportScannedResults}>
+                  <DownloadIcon className="h-4 w-4" />
+                  <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Export Scans</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Export scanned PDFs in a ZIP.</TooltipContent>
+            </Tooltip>
+
+            {/* Drawer for Box Plot */}
             <Tooltip delayDuration={0}>
               <TooltipTrigger asChild>
                 <Button size="sm" className="h-8 gap-1 text-white" style={{ backgroundColor: "hsl(var(--primary))" }}>
@@ -444,12 +447,21 @@ const data = [
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {answers.map((answer, index) => (
-                    <TableRow key={index}>
-                      <TableCell>{index + 1}</TableCell>
-                      <TableCell>{answer}</TableCell>
-                    </TableRow>
-                  ))}
+                  {answers.map((answerObj, index) => {
+                    const question = Object.keys(answerObj)[0];
+                    let questionLabel = question;
+                    // Remove leading 'q' if present (e.g., 'q1' -> '1')
+                    if (questionLabel.startsWith('q')) {
+                      questionLabel = questionLabel.slice(1);
+                    }
+                    const answer = answerObj[question];
+                    return (
+                      <TableRow key={index}>
+                        <TableCell>{questionLabel}</TableCell>
+                        <TableCell>{answer}</TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </ScrollArea>
