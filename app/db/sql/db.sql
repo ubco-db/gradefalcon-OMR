@@ -13,7 +13,7 @@ DROP TABLE IF EXISTS admins CASCADE;
 DROP TABLE IF EXISTS sessions CASCADE;
 DROP TABLE IF EXISTS grade_appeals CASCADE;
 DROP TABLE IF EXISTS session CASCADE;
-
+DROP TABLE IF EXISTS lms_integrations CASCADE;
 
 
 -- ////////// Create tables: /////////////////
@@ -174,6 +174,38 @@ WITH (OIDS=FALSE);
 ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid");
 
 CREATE INDEX "IDX_session_expire" ON "session" ("expire");
+
+-- Leaning Management System (LMS) Integrations 
+CREATE TABLE lms_integrations  (
+    integration_id SERIAL PRIMARY KEY,
+    class_id INT NOT NULL UNIQUE,
+    integration_type VARCHAR(50) NOT NULL, -- 'canvas', 'moodle', etc.
+    external_course_id VARCHAR(255),      -- The course ID from the external LMS
+    access_token TEXT NOT NULL,           -- This will be encrypted
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_class
+        FOREIGN KEY(class_id)
+        REFERENCES classes(class_id)
+        ON DELETE CASCADE
+);
+
+-- Trigger to update the updated_at column on any update
+-- This trigger will automatically set the updated_at column to the current timestamp whenever a row is updated
+-- in the lms_integrations table.
+-- For tracking sensitive date modifications
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_lms_integrations_updated_at
+BEFORE UPDATE ON lms_integrations
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 
 -- ////////// Test value insertion: /////////////////
 
