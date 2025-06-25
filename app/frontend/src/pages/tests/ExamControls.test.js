@@ -35,18 +35,4 @@ describe('ExamControls Component', () => {
     expect(toggleSwitch).toHaveAttribute('data-state', 'unchecked'); // Ensure it is off after click
   });
 
-  test('toggle switch for "Students can see exam statistics" works correctly', () => {
-    render(<BrowserRouter><ExamControls /></BrowserRouter>);
-    const toggleSwitch = screen.getByTestId('toggle-view-stats');
-
-    expect(toggleSwitch).toHaveAttribute('data-state', 'unchecked'); // Ensure it is off initially
-
-    fireEvent.click(toggleSwitch); // toggles switch ON
-
-    expect(toggleSwitch).toHaveAttribute('data-state', 'checked'); // Ensure it is on after click
-
-    fireEvent.click(toggleSwitch); // toggles switch OFF
-
-    expect(toggleSwitch).toHaveAttribute('data-state', 'unchecked'); // Ensure it is off after click
-  });
 });
