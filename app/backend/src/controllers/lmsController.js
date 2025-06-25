@@ -268,6 +268,78 @@ const exportSubmissionsToLms = async (req, res) => {
   }
 };
 
+/**
+ * Remove LMS assignment link for exam
+ */
+const removeExamLmsAssignment = async (req, res) => {
+  try {
+    const { examId } = req.params;
+    const removed = await LMSIntegrationService.removeExamLmsAssignment(parseInt(examId));
+    
+    if (!removed) {
+      return res.status(404).json({ error: 'No LMS assignment found for this exam' });
+    }
+
+    res.json({ success: true, message: 'Exam assignment link removed successfully' });
+  } catch (error) {
+    console.error('Error removing exam assignment link:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * Create new LMS assignment
+ */
+const createLmsAssignment = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { name, points_possible, due_at, description } = req.body;
+
+    if (!name || points_possible === undefined) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: name, points_possible' 
+      });
+    }
+
+    // Convert due_at to ISO 8601 format if provided
+    let formattedDueAt = null;
+    if (due_at && due_at.trim() !== '') {
+      try {
+        // If it's already a valid ISO string, use it; otherwise convert local datetime to ISO
+        const date = new Date(due_at);
+        if (isNaN(date.getTime())) {
+          throw new Error('Invalid date format');
+        }
+        formattedDueAt = date.toISOString();
+      } catch (dateError) {
+        return res.status(400).json({ 
+          error: 'Invalid due date format. Please provide a valid date.' 
+        });
+      }
+    }
+
+    const assignmentData = {
+      name,
+      points_possible: parseFloat(points_possible),
+      due_at: formattedDueAt,
+      description: description || '',
+      submission_types: ['online_upload'],
+      published: true
+    };
+
+    const result = await LMSIntegrationService.createAssignment(parseInt(classId), assignmentData);
+
+    res.json({ 
+      success: true, 
+      data: result,
+      message: 'Assignment created successfully' 
+    });
+  } catch (error) {
+    console.error('Error creating LMS assignment:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   storeClassLmsIntegration,
   getClassLmsIntegration,
@@ -275,8 +347,10 @@ module.exports = {
   validateClassLmsIntegration,
   getLmsCourses,
   getLmsAssignments,
+  createLmsAssignment,
   storeExamLmsAssignment,
   getExamLmsAssignment,
+  removeExamLmsAssignment,
   exportGradesToLms,
   exportSubmissionsToLms
 };

@@ -232,6 +232,51 @@ const useLmsApi = () => {
     }
   }, [apiClient]);
 
+  /**
+   * Remove exam assignment link
+   */
+  const removeExamLmsAssignment = useCallback(async (examId) => {
+    try {
+      const response = await apiClient(`/api/lms/exam/${examId}/assignment`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { success: false, error: errorData?.error || "Failed to remove exam assignment link." };
+      }
+
+      const result = await response.json();
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: "Something went wrong removing exam assignment link. Please try again later." };
+    }
+  }, [apiClient]);
+
+  /**
+   * Create new LMS assignment
+   */
+  const createLmsAssignment = useCallback(async (classId, assignmentData) => {
+    try {
+      const requestBody = JSON.stringify(assignmentData);
+      
+      const response = await apiClient(`/api/lms/class/${classId}/assignments`, {
+        method: 'POST',
+        body: requestBody
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { success: false, error: errorData?.error || "Failed to create assignment." };
+      }
+
+      const result = await response.json();
+      return { success: true, data: result.data };
+    } catch (err) {
+      return { success: false, error: "Something went wrong creating assignment. Please try again later." };
+    }
+  }, [apiClient]);
+
   return {
     storeClassLmsIntegration,
     getClassLmsIntegration,
@@ -239,8 +284,10 @@ const useLmsApi = () => {
     validateClassLmsIntegration,
     getLmsCourses,
     getLmsAssignments,
+    createLmsAssignment,
     storeExamLmsAssignment,
     getExamLmsAssignment,
+    removeExamLmsAssignment,
     exportGradesToLms,
     exportSubmissionsToLms
   };

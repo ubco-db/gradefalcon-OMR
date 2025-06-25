@@ -415,6 +415,35 @@ class LMSIntegrationService {
       throw new Error(`Failed to remove exam assignment integration: ${error.message}`);
     }
   }
+
+  /**
+   * Create new assignment in LMS
+   * @param {number} classId - The class ID
+   * @param {Object} assignmentData - Assignment data (name, points_possible, due_at, description, etc.)
+   * @returns {Promise<Object>} Created assignment data
+   */
+  async createAssignment(classId, assignmentData) {
+    try {
+      const integration = await this.getClassLmsIntegration(classId);
+      if (!integration) {
+        throw new Error('LMS integration not configured for this class');
+      }
+
+      const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
+      const result = await adapter.createAssignment(integration.lmsCourseId, assignmentData);
+
+      await this._logIntegrationActivity(classId, integration.lmsType, 'assignment_creation', {
+        assignmentId: result.id,
+        assignmentName: result.name,
+        pointsPossible: result.pointsPossible
+      });
+
+      return result;
+    } catch (error) {
+      throw new Error(`Failed to create assignment: ${error.message}`);
+    }
+  }
+
 }
 
 module.exports = new LMSIntegrationService();

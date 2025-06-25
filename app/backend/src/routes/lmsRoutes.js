@@ -5,8 +5,10 @@ const {
   validateClassLmsIntegration,
   getLmsCourses,
   getLmsAssignments,
+  createLmsAssignment,
   storeExamLmsAssignment,
   getExamLmsAssignment,
+  removeExamLmsAssignment,
   exportGradesToLms,
   exportSubmissionsToLms
 } = require('../controllers/lmsController');
@@ -24,10 +26,12 @@ router.post('/class/:classId/validate', validateClassLmsIntegration);
 // LMS data fetching routes
 router.get('/class/:classId/courses', getLmsCourses);
 router.get('/class/:classId/assignments', getLmsAssignments);
+router.post('/class/:classId/assignments', createLmsAssignment);
 
 // Exam assignment integration routes
 router.post('/exam/:examId/assignment', storeExamLmsAssignment);
 router.get('/exam/:examId/assignment', getExamLmsAssignment);
+router.delete('/exam/:examId/assignment', removeExamLmsAssignment);
 
 // Export routes
 router.post('/exam/:examId/export-grades', exportGradesToLms);

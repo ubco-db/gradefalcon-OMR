@@ -2,22 +2,29 @@ import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
+import { Input } from './ui/input';
+import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription } from './ui/alert';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
 import useLmsApi from '../api/useLmsApi';
+import useExamApi from '../api/useExamApi';
 import { toast } from './ui/use-toast';
 
 const LmsAssignmentManager = ({ examId, classId }) => {
   const {
     getClassLmsIntegration,
     getLmsAssignments,
+    createLmsAssignment,
     storeExamLmsAssignment,
     getExamLmsAssignment,
+    removeExamLmsAssignment,
     exportGradesToLms,
     exportSubmissionsToLms
   } = useLmsApi();
+  
+  const { fetchExamDetails } = useExamApi();
   
   const [loading, setLoading] = useState(false);
   const [assignment, setAssignment] = useState(null);
@@ -25,12 +32,33 @@ const LmsAssignmentManager = ({ examId, classId }) => {
   const [integration, setIntegration] = useState(null);
   const [assignmentId, setAssignmentId] = useState('');
   const [exportResults, setExportResults] = useState(null);
+  
+  // New assignment creation state
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [examTitle, setExamTitle] = useState('');
+  const [newAssignment, setNewAssignment] = useState({
+    name: '',
+    points_possible: '',
+    due_at: '',
+    description: ''
+  });
 
   useEffect(() => {
     loadData();
   }, [examId, classId]);
 
   const loadData = async () => {
+    // Fetch exam details to get exam title
+    const examResult = await fetchExamDetails(examId);
+    console.log('Exam details result:', examResult); // Debug log
+    
+    if (examResult.success && examResult.data && examResult.data.exam_title) {
+      setExamTitle(examResult.data.exam_title);
+      console.log('Exam title loaded:', examResult.data.exam_title); // Debug log
+    } else {
+      console.error('Failed to load exam details:', examResult.error || 'No exam title found');
+    }
+    
     // Check if class has LMS integration
     const integrationResult = await getClassLmsIntegration(classId);
     if (integrationResult.success) {
@@ -131,6 +159,96 @@ const LmsAssignmentManager = ({ examId, classId }) => {
     setLoading(false);
   };
 
+  const handleUnlinkAssignment = async () => {
+    setLoading(true);
+    const result = await removeExamLmsAssignment(examId);
+    
+    if (result.success) {
+      toast({
+        title: "Success",
+        description: "Assignment unlinked successfully"
+      });
+      setAssignment(null);
+      setAssignmentId('');
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to unlink assignment",
+        variant: "destructive"
+      });
+    }
+    setLoading(false);
+  };
+
+  const handleCreateAssignment = async () => {
+    if (!newAssignment.name || !newAssignment.points_possible) {
+      toast({
+        title: "Error",
+        description: "Please fill in all required fields",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setLoading(true);
+    const result = await createLmsAssignment(classId, newAssignment);
+    
+    if (result.success) {
+      toast({
+        title: "Success",
+        description: `Assignment "${newAssignment.name}" created successfully`
+      });
+      
+      // Reset form
+      setNewAssignment({
+        name: '',
+        points_possible: '',
+        due_at: '',
+        description: ''
+      });
+      setShowCreateForm(false);
+      
+      // Refresh assignments list
+      await loadData();
+      
+      // Auto-select the new assignment
+      setAssignmentId(result.data.id.toString());
+      
+      // Auto-link the new assignment
+      const linkResult = await storeExamLmsAssignment(examId, result.data.id.toString());
+      if (linkResult.success) {
+        toast({
+          title: "Success",
+          description: "Assignment linked to exam successfully"
+        });
+        await loadData();
+      }
+    } else {
+      toast({
+        title: "Error",
+        description: result.error || "Failed to create assignment",
+        variant: "destructive"
+      });
+    }
+    setLoading(false);
+  };
+
+  const handleAssignmentChange = (value) => {
+    if (value === 'create-new') {
+      setShowCreateForm(true);
+      setAssignmentId('');
+      // Pre-populate assignment name with exam title
+      console.log('Pre-populating assignment name with exam title:', examTitle); // Debug log
+      setNewAssignment(prev => ({
+        ...prev,
+        name: examTitle || ''
+      }));
+    } else {
+      setAssignmentId(value);
+      setShowCreateForm(false);
+    }
+  };
+
   if (!integration) {
     return (
       <Card>
@@ -176,19 +294,43 @@ const LmsAssignmentManager = ({ examId, classId }) => {
           {assignment ? (
             <div className="p-3 bg-gray-50 rounded-md">
               <p className="text-sm">
-                <strong>Linked Assignment ID:</strong> {assignment.lmsAssignmentId}
+                <strong>Linked Assignment:</strong> {(() => {
+                  const linkedAssignment = assignments.find(a => a.id.toString() === assignment.lmsAssignmentId);
+                  return linkedAssignment 
+                    ? `${linkedAssignment.name} (ID: ${assignment.lmsAssignmentId})`
+                    : `ID: ${assignment.lmsAssignmentId}`;
+                })()}
               </p>
               <p className="text-xs text-gray-600 mt-1">
                 This exam is linked to a Canvas assignment
               </p>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setAssignment(null)}
+                  disabled={loading}
+                >
+                  Relink Assignment
+                </Button>
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={handleUnlinkAssignment}
+                  disabled={loading}
+                >
+                  Unlink Assignment
+                </Button>
+              </div>
             </div>
           ) : (
-            <div className="space-y-2">
-              <Select value={assignmentId} onValueChange={setAssignmentId}>
+            <div className="space-y-3">
+              <Select value={assignmentId} onValueChange={handleAssignmentChange}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select Canvas assignment" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="create-new">+ Create New Assignment...</SelectItem>
                   {assignments.map((assignment) => (
                     <SelectItem key={assignment.id} value={assignment.id.toString()}>
                       {assignment.name} ({assignment.pointsPossible} pts)
@@ -196,9 +338,78 @@ const LmsAssignmentManager = ({ examId, classId }) => {
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={handleLinkAssignment} disabled={loading || !assignmentId}>
-                Link Assignment
-              </Button>
+              
+              {showCreateForm && (
+                <div className="p-4 border rounded-md bg-gray-50 space-y-3">
+                  <div>
+                    <Label htmlFor="assignment-name">Assignment Name *</Label>
+                    <Input
+                      id="assignment-name"
+                      value={newAssignment.name}
+                      onChange={(e) => setNewAssignment({...newAssignment, name: e.target.value})}
+                      placeholder="Enter assignment name"
+                      disabled={loading}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="assignment-points">Points Possible *</Label>
+                    <Input
+                      id="assignment-points"
+                      type="number"
+                      value={newAssignment.points_possible}
+                      onChange={(e) => setNewAssignment({...newAssignment, points_possible: e.target.value})}
+                      placeholder="Enter points possible"
+                      disabled={loading}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="assignment-due">Due Date (optional)</Label>
+                    <Input
+                      id="assignment-due"
+                      type="datetime-local"
+                      value={newAssignment.due_at}
+                      onChange={(e) => setNewAssignment({...newAssignment, due_at: e.target.value})}
+                      disabled={loading}
+                    />
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="assignment-description">Description (optional)</Label>
+                    <Textarea
+                      id="assignment-description"
+                      value={newAssignment.description}
+                      onChange={(e) => setNewAssignment({...newAssignment, description: e.target.value})}
+                      placeholder="Enter assignment description"
+                      disabled={loading}
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <Button onClick={handleCreateAssignment} disabled={loading}>
+                      {loading ? 'Creating...' : 'Create & Link Assignment'}
+                    </Button>
+                    <Button 
+                      variant="outline" 
+                      onClick={() => {
+                        setShowCreateForm(false);
+                        setAssignmentId('');
+                      }}
+                      disabled={loading}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+              
+              {!showCreateForm && assignmentId && (
+                <Button onClick={handleLinkAssignment} disabled={loading || !assignmentId}>
+                  Link Assignment
+                </Button>
+              )}
             </div>
           )}
         </div>
