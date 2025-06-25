@@ -179,9 +179,9 @@ CREATE INDEX "IDX_session_expire" ON "session" ("expire");
 CREATE TABLE lms_integrations  (
     integration_id SERIAL PRIMARY KEY,
     class_id INT NOT NULL UNIQUE,
-    integration_type VARCHAR(50) NOT NULL, -- 'canvas', 'moodle', etc.
-    external_course_id VARCHAR(255),      -- The course ID from the external LMS
-    access_token TEXT NOT NULL,           -- This will be encrypted
+    lms_type VARCHAR(50) NOT NULL, -- 'canvas', 'moodle', etc.
+    lms_course_id VARCHAR(255),      -- The course ID from the external LMS
+    encrypted_access_token TEXT NOT NULL,           -- This will be encrypted
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT fk_class
@@ -204,6 +204,23 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER update_lms_integrations_updated_at
 BEFORE UPDATE ON lms_integrations
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Exam LMS Integration table for storing assignment IDs per exam
+CREATE TABLE exam_lms_integrations (
+    integration_id SERIAL PRIMARY KEY,
+    exam_id INT NOT NULL,
+    lms_assignment_id VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (exam_id) REFERENCES exam(exam_id) ON DELETE CASCADE,
+    UNIQUE(exam_id) -- One assignment per exam for now, can be removed later for multiple LMS support
+);
+
+-- Trigger for exam_lms_integrations updated_at
+CREATE TRIGGER update_exam_lms_integrations_updated_at
+BEFORE UPDATE ON exam_lms_integrations
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 

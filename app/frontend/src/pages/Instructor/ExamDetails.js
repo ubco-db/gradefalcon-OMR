@@ -6,6 +6,7 @@ import Plot from "react-plotly.js";
 import { useNavigate, useParams } from "react-router-dom";
 import useExamApi from "../../api/useExamApi";
 import { ExamGridAppealView } from "../../components/ExamGridAppealView";
+import LmsAssignmentManager from "../../components/LmsAssignmentManager";
 import QuestionsTable from "../../components/QuestionsTable";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card";
@@ -468,6 +469,13 @@ const ExamDetails = () => {
           </CardContent>
         </Card>
       </div>
+      
+      {/* LMS Integration Section */}
+      <LmsAssignmentManager 
+        examId={exam_id} 
+        classId={examData.class_id} 
+      />
+      
       <ExamGridAppealView
         examId={exam_id}>
       </ExamGridAppealView>

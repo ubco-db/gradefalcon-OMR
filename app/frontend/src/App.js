@@ -46,6 +46,9 @@ import StudentReportsDashboard from './pages/Student/StudentReportsDashboard';
 // grade appeal pages
 import ReplyAppeal from "./pages/Instructor/ReplyAppeal";
 
+// LMS integration page
+import LmsIntegration from "./pages/Instructor/LmsIntegration";
+
 function App() {
   return (
     <Router>
@@ -89,6 +92,10 @@ function App() {
           <Route path="/StudentReportsDashboard" element={<ProtectedRoute roles={['Student']}><StudentLayout><StudentReportsDashboard /></StudentLayout></ProtectedRoute>} />
           {/* grade appeal routes */}
           <Route path="/ReplyAppeal/:grade_appeal_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ReplyAppeal /></Layout></ProtectedRoute>} />
+          
+          {/* LMS integration routes */}
+          <Route path="/ClassManagement/:classId/lms" element={<ProtectedRoute roles={['Instructor']}><Layout><LmsIntegration /></Layout></ProtectedRoute>} />
+          
           {/* Fallback for unmatched routes */}
           <Route path="*" element={<NotFound />} />
         </Routes>
