@@ -10,12 +10,16 @@ const {
   getExamLmsAssignment,
   removeExamLmsAssignment,
   exportGradesToLms,
-  exportSubmissionsToLms
+  exportSubmissionsToLms,
+  getAvailableLmsTypes
 } = require('../controllers/lmsController');
 
 const express = require('express');
 
 const router = express.Router();
+
+// General LMS routes
+router.get('/types', getAvailableLmsTypes);
 
 // Class LMS integration routes
 router.post('/class/:classId/integration', storeClassLmsIntegration);

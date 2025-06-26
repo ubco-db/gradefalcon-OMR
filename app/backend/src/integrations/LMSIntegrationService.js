@@ -1,4 +1,5 @@
 const CanvasAdapter = require('./CanvasAdapter');
+const MockLmsAdapter = require('./MockLmsAdapter');
 const pool = require('../utils/db');
 const { encrypt, decrypt } = require('../utils/crypto');
 
@@ -6,6 +7,7 @@ class LMSIntegrationService {
   constructor() {
     this.adapters = new Map();
     this.registerAdapter('canvas', CanvasAdapter);
+    this.registerAdapter('mocklms', MockLmsAdapter);
   }
 
   registerAdapter(lmsType, AdapterClass) {
@@ -442,6 +444,39 @@ class LMSIntegrationService {
     } catch (error) {
       throw new Error(`Failed to create assignment: ${error.message}`);
     }
+  }
+
+  /**
+   * Get available LMS types
+   * @returns {Array} Available LMS types with id and name
+   */
+  getAvailableLmsTypes() {
+    const lmsTypes = [];
+    
+    for (const [id, AdapterClass] of this.adapters) {
+      lmsTypes.push({
+        id: id,
+        name: this._getLmsDisplayName(id)
+      });
+    }
+    
+    return lmsTypes;
+  }
+
+  /**
+   * Get display name for LMS type
+   * @param {string} lmsType - The LMS type ID
+   * @returns {string} Display name
+   */
+  _getLmsDisplayName(lmsType) {
+    const displayNames = {
+      'canvas': 'Canvas',
+      'moodle': 'Moodle',
+      'blackboard': 'Blackboard',
+      'mocklms': 'Mock LMS (Testing)'
+    };
+    
+    return displayNames[lmsType] || lmsType.charAt(0).toUpperCase() + lmsType.slice(1);
   }
 
 }

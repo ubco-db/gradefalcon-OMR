@@ -39,7 +39,6 @@ const LmsAssignmentManager = ({ examId, classId }) => {
   const [newAssignment, setNewAssignment] = useState({
     name: '',
     points_possible: '',
-    due_at: '',
     description: ''
   });
 
@@ -203,7 +202,6 @@ const LmsAssignmentManager = ({ examId, classId }) => {
       setNewAssignment({
         name: '',
         points_possible: '',
-        due_at: '',
         description: ''
       });
       setShowCreateForm(false);
@@ -360,17 +358,6 @@ const LmsAssignmentManager = ({ examId, classId }) => {
                       value={newAssignment.points_possible}
                       onChange={(e) => setNewAssignment({...newAssignment, points_possible: e.target.value})}
                       placeholder="Enter points possible"
-                      disabled={loading}
-                    />
-                  </div>
-                  
-                  <div>
-                    <Label htmlFor="assignment-due">Due Date (optional)</Label>
-                    <Input
-                      id="assignment-due"
-                      type="datetime-local"
-                      value={newAssignment.due_at}
-                      onChange={(e) => setNewAssignment({...newAssignment, due_at: e.target.value})}
                       disabled={loading}
                     />
                   </div>

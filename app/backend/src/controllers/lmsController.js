@@ -340,6 +340,19 @@ const createLmsAssignment = async (req, res) => {
   }
 };
 
+/**
+ * Get available LMS types
+ */
+const getAvailableLmsTypes = async (req, res) => {
+  try {
+    const lmsTypes = LMSIntegrationService.getAvailableLmsTypes();
+    res.json(lmsTypes);
+  } catch (error) {
+    console.error('Error getting available LMS types:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   storeClassLmsIntegration,
   getClassLmsIntegration,
@@ -352,5 +365,6 @@ module.exports = {
   getExamLmsAssignment,
   removeExamLmsAssignment,
   exportGradesToLms,
-  exportSubmissionsToLms
+  exportSubmissionsToLms,
+  getAvailableLmsTypes
 };

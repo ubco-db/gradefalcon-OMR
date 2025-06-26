@@ -277,6 +277,27 @@ const useLmsApi = () => {
     }
   }, [apiClient]);
 
+  /**
+   * Get available LMS types from backend
+   */
+  const getAvailableLmsTypes = useCallback(async () => {
+    try {
+      const response = await apiClient('/api/lms/types', {
+        method: 'GET'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { success: false, error: errorData?.error || "Failed to get LMS types." };
+      }
+
+      const result = await response.json();
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: "Something went wrong getting LMS types. Please try again later." };
+    }
+  }, [apiClient]);
+
   return {
     storeClassLmsIntegration,
     getClassLmsIntegration,
@@ -289,7 +310,8 @@ const useLmsApi = () => {
     getExamLmsAssignment,
     removeExamLmsAssignment,
     exportGradesToLms,
-    exportSubmissionsToLms
+    exportSubmissionsToLms,
+    getAvailableLmsTypes
   };
 };
 

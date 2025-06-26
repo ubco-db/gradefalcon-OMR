@@ -60,9 +60,10 @@ class CanvasAdapter extends LMSAdapter {
       return assignments.map(assignment => ({
         id: assignment.id,
         name: assignment.name,
+        description: assignment.description,
         pointsPossible: assignment.points_possible,
-        dueAt: assignment.due_at,
-        submissionTypes: assignment.submission_types
+        courseId: parseInt(courseId),
+        htmlUrl: assignment.html_url
       }));
     } catch (error) {
       throw new Error(`Failed to fetch assignments: ${error.message}`);
@@ -90,7 +91,9 @@ class CanvasAdapter extends LMSAdapter {
       return {
         id: assignment.id,
         name: assignment.name,
+        description: assignment.description,
         pointsPossible: assignment.points_possible,
+        courseId: parseInt(courseId),
         htmlUrl: assignment.html_url
       };
     } catch (error) {

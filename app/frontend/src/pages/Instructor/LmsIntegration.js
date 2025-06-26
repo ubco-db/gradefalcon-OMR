@@ -19,11 +19,13 @@ const LmsIntegration = () => {
     getClassLmsIntegration,
     storeClassLmsIntegration,
     removeClassLmsIntegration,
-    validateClassLmsIntegration
+    validateClassLmsIntegration,
+    getAvailableLmsTypes
   } = useLmsApi();
   
   const [loading, setLoading] = useState(false);
   const [integration, setIntegration] = useState(null);
+  const [availableLmsTypes, setAvailableLmsTypes] = useState([]);
   const [formData, setFormData] = useState({
     lmsType: 'canvas',
     accessToken: '',
@@ -34,6 +36,7 @@ const LmsIntegration = () => {
 
   useEffect(() => {
     loadIntegration();
+    loadAvailableLmsTypes();
   }, [classId]);
 
   const loadIntegration = async () => {
@@ -47,6 +50,20 @@ const LmsIntegration = () => {
       });
     } else if (!result.notFound) {
       console.error('Error loading integration:', result.error);
+    }
+  };
+
+  const loadAvailableLmsTypes = async () => {
+    const result = await getAvailableLmsTypes();
+    if (result.success) {
+      setAvailableLmsTypes(result.data);
+    } else {
+      console.error('Error loading LMS types:', result.error);
+      // Fallback to default options
+      setAvailableLmsTypes([
+        { id: 'canvas', name: 'Canvas' },
+        { id: 'mocklms', name: 'Mock LMS (Testing)' }
+      ]);
     }
   };
 
@@ -182,7 +199,11 @@ const LmsIntegration = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="canvas">Canvas</SelectItem>
+                      {availableLmsTypes.map((lmsType) => (
+                        <SelectItem key={lmsType.id} value={lmsType.id}>
+                          {lmsType.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -192,7 +213,7 @@ const LmsIntegration = () => {
                   <Input
                     id="accessToken"
                     type="password"
-                    placeholder="Enter your Canvas access token"
+                    placeholder={`Enter your ${formData.lmsType === 'canvas' ? 'Canvas' : formData.lmsType.charAt(0).toUpperCase() + formData.lmsType.slice(1)} access token`}
                     value={formData.accessToken}
                     onChange={(e) => setFormData(prev => ({ ...prev, accessToken: e.target.value }))}
                     required
@@ -203,16 +224,18 @@ const LmsIntegration = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="lmsCourseId">Canvas Course ID *</Label>
+                  <Label htmlFor="lmsCourseId">{formData.lmsType === 'canvas' ? 'Canvas' : formData.lmsType.charAt(0).toUpperCase() + formData.lmsType.slice(1)} Course ID *</Label>
                   <Input
                     id="lmsCourseId"
-                    placeholder="Enter Canvas course ID (e.g., 123456)"
+                    placeholder={`Enter ${formData.lmsType === 'canvas' ? 'Canvas' : formData.lmsType} course ID (e.g., 123456)`}
                     value={formData.lmsCourseId}
                     onChange={(e) => setFormData(prev => ({ ...prev, lmsCourseId: e.target.value }))}
                     required
                   />
                   <p className="text-sm text-gray-500">
-                    Find this in your Canvas course URL: /courses/[ID]
+                    {formData.lmsType === 'canvas' 
+                      ? 'Find this in your Canvas course URL: /courses/[ID]' 
+                      : `Find this in your ${formData.lmsType.charAt(0).toUpperCase() + formData.lmsType.slice(1)} course URL`}
                   </p>
                 </div>
 
