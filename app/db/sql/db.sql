@@ -207,6 +207,34 @@ BEFORE UPDATE ON lms_integrations
 FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 
+-- Trigger to automatically unlink exams from LMS assignments when the class's
+-- LMS integration is changed (different provider or course) or removed.
+CREATE OR REPLACE FUNCTION unlink_exams_on_lms_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- This function is triggered before an UPDATE or DELETE on lms_integrations.
+    -- It unlinks exams if the LMS provider/course changes or if the integration is removed.
+
+    -- For UPDATE operations, we only act if the relevant fields are changing.
+    -- For DELETE operations, we always act.
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND (OLD.lms_type IS DISTINCT FROM NEW.lms_type OR OLD.lms_course_id IS DISTINCT FROM NEW.lms_course_id))) THEN
+        DELETE FROM exam_lms_integrations
+        WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = OLD.class_id);
+    END IF;
+
+    -- Return the appropriate row to allow the original operation to proceed.
+    IF (TG_OP = 'UPDATE') THEN
+        RETURN NEW;
+    ELSE
+        RETURN OLD;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER lms_integrations_change_trigger
+    BEFORE UPDATE OR DELETE ON lms_integrations
+    FOR EACH ROW EXECUTE FUNCTION unlink_exams_on_lms_change();
+
 -- Exam LMS Integration table for storing assignment IDs per exam
 CREATE TABLE exam_lms_integrations (
     integration_id SERIAL PRIMARY KEY,
