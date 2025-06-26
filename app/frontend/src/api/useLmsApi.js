@@ -298,6 +298,44 @@ const useLmsApi = () => {
     }
   }, [apiClient]);
 
+  const getLmsStudents = useCallback(async (classId) => {
+    try {
+      const response = await apiClient(`/api/lms/class/${classId}/students`, {
+        method: 'GET'
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { success: false, error: errorData?.error || "Failed to fetch LMS students." };
+      }
+
+      const result = await response.json();
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: "Something went wrong fetching LMS students. Please try again later." };
+    }
+  }, [apiClient]);
+
+  const saveLmsStudents = useCallback(async (classId, students) => {
+    try {
+      const requestBody = JSON.stringify({ students });
+      const response = await apiClient(`/api/lms/class/${classId}/students`, {
+        method: 'POST',
+        body: requestBody
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        return { success: false, error: errorData?.error || "Failed to save LMS students." };
+      }
+
+      const result = await response.json();
+      return { success: true, data: result };
+    } catch (err) {
+      return { success: false, error: "Something went wrong saving LMS students. Please try again later." };
+    }
+  }, [apiClient]);
+
   return {
     storeClassLmsIntegration,
     getClassLmsIntegration,
@@ -311,7 +349,9 @@ const useLmsApi = () => {
     removeExamLmsAssignment,
     exportGradesToLms,
     exportSubmissionsToLms,
-    getAvailableLmsTypes
+    getAvailableLmsTypes,
+    getLmsStudents,
+    saveLmsStudents
   };
 };
 

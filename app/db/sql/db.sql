@@ -3,6 +3,7 @@
 DROP TABLE IF EXISTS instructor CASCADE;
 DROP TABLE IF EXISTS classes CASCADE;
 DROP TABLE IF EXISTS student CASCADE;
+DROP TABLE IF EXISTS student_lms_integration CASCADE;
 DROP TABLE IF EXISTS exam CASCADE;
 DROP TABLE IF EXISTS solution CASCADE;
 DROP TABLE IF EXISTS enrollment CASCADE;
@@ -40,6 +41,26 @@ CREATE TABLE student (
     email text unique,
     name text
 );
+
+-- Student LMS Integration table for storing lms id per student
+CREATE TABLE student_lms_integration (
+    integration_id SERIAL PRIMARY KEY,
+    student_id TEXT NOT NULL,
+    lms_user_id VARCHAR(255) NOT NULL,
+    lms_type VARCHAR(50) NOT NULL, -- 'canvas', 'moodle', etc.
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, lms_type),
+    FOREIGN KEY (student_id) REFERENCES student(student_id) ON DELETE CASCADE
+);
+
+-- Trigger for student_lms_integration updated_at
+CREATE TRIGGER update_student_lms_integration_updated_at
+BEFORE UPDATE ON student_lms_integration
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
 -- TODO: store pdf template in database
 CREATE TABLE exam (
     exam_id serial primary key,
@@ -75,7 +96,8 @@ CREATE TABLE enrollment(
     class_id int,
     student_id text,
     foreign key (class_id) references classes(class_id),
-    foreign key (student_id) references student(student_id)
+    foreign key (student_id) references student(student_id),
+    CONSTRAINT unique_class_student UNIQUE(class_id, student_id)
 );
 
 CREATE TABLE studentResults(

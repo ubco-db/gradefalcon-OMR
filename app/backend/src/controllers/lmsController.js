@@ -353,6 +353,29 @@ const getAvailableLmsTypes = async (req, res) => {
   }
 };
 
+const getLmsStudents = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const students = await LMSIntegrationService.getLmsStudents(parseInt(classId));
+    res.json(students);
+  } catch (error) {
+    console.error('Error getting students from LMS:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const saveLmsStudents = async (req, res) => {
+  try {
+    const { classId } = req.params;
+    const { students } = req.body;
+    const result = await LMSIntegrationService.saveLmsStudents(parseInt(classId), students);
+    res.json(result);
+  } catch (error) {
+    console.error('Error saving students from LMS:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 module.exports = {
   storeClassLmsIntegration,
   getClassLmsIntegration,
@@ -366,5 +389,7 @@ module.exports = {
   removeExamLmsAssignment,
   exportGradesToLms,
   exportSubmissionsToLms,
-  getAvailableLmsTypes
+  getAvailableLmsTypes,
+  getLmsStudents,
+  saveLmsStudents
 };

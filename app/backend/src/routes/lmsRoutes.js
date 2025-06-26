@@ -11,7 +11,9 @@ const {
   removeExamLmsAssignment,
   exportGradesToLms,
   exportSubmissionsToLms,
-  getAvailableLmsTypes
+  getAvailableLmsTypes,
+  getLmsStudents,
+  saveLmsStudents
 } = require('../controllers/lmsController');
 
 const express = require('express');
@@ -31,6 +33,8 @@ router.post('/class/:classId/validate', validateClassLmsIntegration);
 router.get('/class/:classId/courses', getLmsCourses);
 router.get('/class/:classId/assignments', getLmsAssignments);
 router.post('/class/:classId/assignments', createLmsAssignment);
+router.get('/class/:classId/students', getLmsStudents);
+router.post('/class/:classId/students', saveLmsStudents);
 
 // Exam assignment integration routes
 router.post('/exam/:examId/assignment', storeExamLmsAssignment);

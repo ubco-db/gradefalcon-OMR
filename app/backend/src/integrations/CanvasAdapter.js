@@ -28,7 +28,41 @@ class CanvasAdapter extends LMSAdapter {
       throw new Error(`Canvas API Error (${response.status}): ${errorText}`);
     }
 
-    return response.json();
+    // Return headers for pagination
+    return {
+      data: await response.json(),
+      headers: response.headers
+    };
+  }
+
+  async _makePaginatedRequest(endpoint, options = {}) {
+    let results = [];
+    let url = `${this.baseUrl}${endpoint}`;
+
+    while (url) {
+      const response = await fetch(url, {
+        ...options,
+        headers: {
+          'Authorization': `Bearer ${this.accessToken}`,
+          'Content-Type': 'application/json',
+          ...options.headers
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Canvas API Error (${response.status}): ${errorText}`);
+      }
+
+      const data = await response.json();
+      results = results.concat(data);
+
+      const linkHeader = response.headers.get('link');
+      const nextLink = linkHeader?.split(',').find(s => s.includes('rel="next"'));
+      url = nextLink ? nextLink.match(/<(.*?)>/)[1] : null;
+    }
+
+    return results;
   }
 
   async validateCredentials() {
@@ -42,7 +76,7 @@ class CanvasAdapter extends LMSAdapter {
 
   async getCourses() {
     try {
-      const courses = await this._makeRequest('/courses?enrollment_type=teacher&per_page=100');
+      const courses = await this._makePaginatedRequest('/courses?enrollment_type=teacher&per_page=100');
       return courses.map(course => ({
         id: course.id,
         name: course.name,
@@ -56,7 +90,7 @@ class CanvasAdapter extends LMSAdapter {
 
   async getAssignments(courseId) {
     try {
-      const assignments = await this._makeRequest(`/courses/${courseId}/assignments?per_page=100`);
+      const assignments = await this._makePaginatedRequest(`/courses/${courseId}/assignments?per_page=100`);
       return assignments.map(assignment => ({
         id: assignment.id,
         name: assignment.name,
@@ -83,7 +117,7 @@ class CanvasAdapter extends LMSAdapter {
     };
 
     try {
-      const assignment = await this._makeRequest(`/courses/${courseId}/assignments`, {
+      const { data: assignment } = await this._makeRequest(`/courses/${courseId}/assignments`, {
         method: 'POST',
         body: JSON.stringify(payload)
       });
@@ -113,7 +147,7 @@ class CanvasAdapter extends LMSAdapter {
           }
         };
 
-        const response = await this._makeRequest(
+        const { data: response } = await this._makeRequest(
           `/courses/${courseId}/assignments/${assignmentId}/submissions/${grade.student_id}`,
           {
             method: 'PUT',
@@ -122,14 +156,18 @@ class CanvasAdapter extends LMSAdapter {
         );
 
         results.push({
-          student_id: grade.student_id,
+          student_id: grade.internal_student_id || grade.student_id,
+          lms_user_id: grade.student_id, // This is actually the LMS user ID
+          student_name: grade.student_name,
           success: true,
           grade: grade.score,
           canvas_response: response.grade
         });
       } catch (error) {
         errors.push({
-          student_id: grade.student_id,
+          student_id: grade.internal_student_id || grade.student_id,
+          lms_user_id: grade.student_id, // This is actually the LMS user ID
+          student_name: grade.student_name,
           success: false,
           error: error.message,
           grade: grade.score
@@ -152,7 +190,7 @@ class CanvasAdapter extends LMSAdapter {
       formData.append('submission[submission_type]', 'online_upload');
       formData.append('submission[file_ids][]', await this._uploadFile(courseId, submissionData));
 
-      const response = await this._makeRequest(
+      const { data: response } = await this._makeRequest(
         `/courses/${courseId}/assignments/${assignmentId}/submissions`,
         {
           method: 'POST',
@@ -182,7 +220,7 @@ class CanvasAdapter extends LMSAdapter {
     formData.append('size', submissionData.buffer.length);
     formData.append('content_type', 'application/pdf');
 
-    const uploadResponse = await this._makeRequest(`/courses/${courseId}/files`, {
+    const { data: uploadResponse } = await this._makeRequest(`/courses/${courseId}/files`, {
       method: 'POST',
       body: formData,
       headers: {}
@@ -211,11 +249,15 @@ class CanvasAdapter extends LMSAdapter {
   }
 
   formatGradeData(studentScores, totalMarks) {
-    return studentScores.map(student => ({
-      student_id: student.student_id,
-      score: student.grade,
-      percentage: totalMarks > 0 ? (student.grade / totalMarks) * 100 : 0
-    }));
+    return studentScores
+      .filter(student => student.lms_user_id) // Only include students with LMS mapping
+      .map(student => ({
+        student_id: student.lms_user_id, // Use LMS user ID for Canvas
+        internal_student_id: student.student_id, // Keep internal ID for reference
+        score: student.grade,
+        percentage: totalMarks > 0 ? (student.grade / totalMarks) * 100 : 0,
+        student_name: student.name
+      }));
   }
 
   formatSubmissionData(pdfBuffer, filename, studentId) {
@@ -261,6 +303,20 @@ class CanvasAdapter extends LMSAdapter {
       successCount: results.length,
       failureCount: errors.length
     };
+  }
+
+  async getStudents(courseId) {
+    try {
+      const users = await this._makePaginatedRequest(`/courses/${courseId}/users?enrollment_type[]=student&include[]=enrollments&per_page=100`);
+      return users.map(user => ({
+        lms_user_id: user.id,
+        student_id: user.sis_user_id,
+        name: user.name,
+        email: user.email
+      }));
+    } catch (error) {
+      throw new Error(`Failed to fetch users: ${error.message}`);
+    }
   }
 }
 

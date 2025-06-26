@@ -33,6 +33,7 @@ import ReviewExams from './pages/Instructor/ReviewExams';
 import ViewExam from './pages/Instructor/ViewExam';
 import Reports from './pages/Instructor/Reports';
 import ViewReport from './pages/Instructor/ViewReport';
+import ImportStudents from './pages/ImportStudents';
 
 // Import Student pages
 import StudentDashboard from './pages/Student/StudentDashboard';
@@ -81,6 +82,7 @@ function App() {
           <Route path="/NotificationPreferences" element={<ProtectedRoute roles={['Instructor']}><Layout><NotificationPreferences /></Layout></ProtectedRoute>} />
           <Route path="/Reports" element={<ProtectedRoute roles={['Instructor']}><Layout><Reports /></Layout></ProtectedRoute>} />
           <Route path="/ViewReport/:report_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ViewReport /></Layout></ProtectedRoute>} />
+          <Route path="/class/:classId/import-students" element={<ProtectedRoute roles={['Instructor']}><Layout><ImportStudents /></Layout></ProtectedRoute>} />
 
           {/* Student Routes */}
           <Route path="/StudentDashboard" element={<ProtectedRoute roles={['Student']}><StudentLayout><StudentDashboard /></StudentLayout></ProtectedRoute>} />

@@ -124,6 +124,19 @@ class LMSAdapter {
   formatSubmissionData(pdfBuffer, filename, studentId) {
     throw new Error('formatSubmissionData method must be implemented by subclass');
   }
+
+  /**
+   * Get students from the LMS
+   * @param {string|number} courseId - The course ID
+   * @returns {Promise<Array<Object>>} Array of student objects
+   * @returns {string} returns[].lms_user_id - The internal LMS user ID (e.g., Canvas user_id)
+   * @returns {string} returns[].student_id - The student information system ID (maps to local student_id)
+   * @returns {string} returns[].name - Student name
+   * @returns {string} returns[].email - Student email
+   */
+  async getStudents(courseId) {
+    throw new Error('getStudents method must be implemented by subclass');
+  }
 }
 
 module.exports = LMSAdapter;
