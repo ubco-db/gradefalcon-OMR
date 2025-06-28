@@ -99,6 +99,12 @@ class LMSIntegrationService {
       if (!integration) {
         throw new Error('LMS integration not configured for this class');
       }
+      
+      // Get instructor ID for logging
+      const instructorQuery = `SELECT instructor_id FROM classes WHERE class_id = $1`;
+      const instructorResult = await pool.query(instructorQuery, [examData.classId]);
+      const instructorId = instructorResult.rows[0]?.instructor_id;
+      
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
       const gradeData = adapter.formatGradeData(examData.studentScores, examData.totalMarks);
       
@@ -114,9 +120,10 @@ class LMSIntegrationService {
       }
       
       const result = await adapter.uploadGrades(integration.lmsCourseId, assignmentId, gradeData);
-      await this._logIntegrationActivity(examData.classId, integration.lmsType, 'grade_export', {
+      await this._logIntegrationActivity(instructorId || examData.classId, integration.lmsType, 'grade_export', {
         examId,
         assignmentId,
+        classId: examData.classId,
         successCount: result.successCount,
         failureCount: result.failureCount
       });
@@ -133,21 +140,47 @@ class LMSIntegrationService {
       if (!integration) {
         throw new Error('LMS integration not configured for this class');
       }
+      
+      // Get instructor ID for logging
+      const instructorQuery = `SELECT instructor_id FROM classes WHERE class_id = $1`;
+      const instructorResult = await pool.query(instructorQuery, [examData.classId]);
+      const instructorId = instructorResult.rows[0]?.instructor_id;
+      
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
       const submissions = await this._getExamSubmissions(examId);
+      
+      if (submissions.length === 0) {
+        const examQuery = `SELECT COUNT(*) as total FROM studentResults WHERE exam_id = $1 AND image_uuids IS NOT NULL`;
+        const examResult = await pool.query(examQuery, [examId]);
+        const totalWithImages = examResult.rows[0].total;
+        
+        if (totalWithImages > 0) {
+          throw new Error(`No submissions with LMS integration mapping found. Found ${totalWithImages} students with scanned images, but none have LMS integration. Please import students from LMS first.`);
+        } else {
+          throw new Error('No submissions found. Please ensure the exam has been scanned and students have submission images.');
+        }
+      }
+      
       const results = [];
       const errors = [];
       for (const submission of submissions) {
         try {
+          console.log(`DEBUG: About to upload submission:`, {
+            lmsCourseId: integration.lmsCourseId,
+            assignmentId: assignmentId,
+            lms_user_id: submission.lms_user_id,
+            filename: submission.filename
+          });
+          
           const submissionData = adapter.formatSubmissionData(
             submission.pdfBuffer,
             submission.filename,
-            submission.student_id
+            submission.lms_user_id
           );
           const result = await adapter.uploadSubmission(
             integration.lmsCourseId,
             assignmentId,
-            submission.student_id,
+            submission.lms_user_id,
             submissionData
           );
           if (result.success) {
@@ -159,6 +192,8 @@ class LMSIntegrationService {
           errors.push({
             success: false,
             student_id: submission.student_id,
+            lms_user_id: submission.lms_user_id,
+            student_name: submission.student_name,
             error: error.message
           });
         }
@@ -170,9 +205,10 @@ class LMSIntegrationService {
         successCount: results.length,
         failureCount: errors.length
       };
-      await this._logIntegrationActivity(examData.classId, integration.lmsType, 'submission_export', {
+      await this._logIntegrationActivity(instructorId || examData.classId, integration.lmsType, 'submission_export', {
         examId,
         assignmentId,
+        classId: examData.classId,
         successCount: finalResult.successCount,
         failureCount: finalResult.failureCount
       });
@@ -222,25 +258,56 @@ class LMSIntegrationService {
   }
 
   async _getExamSubmissions(examId) {
+    // Get the LMS type for this class to join with correct LMS integration
+    const examQuery = `SELECT class_id FROM exam WHERE exam_id = $1`;
+    const examResult = await pool.query(examQuery, [examId]);
+    if (examResult.rows.length === 0) {
+      throw new Error('Exam not found');
+    }
+    const classId = examResult.rows[0].class_id;
+
+    const integrationQuery = `SELECT lms_type FROM lms_integrations WHERE class_id = $1`;
+    const integrationResult = await pool.query(integrationQuery, [classId]);
+    if (integrationResult.rows.length === 0) {
+      throw new Error('No LMS integration found for this class');
+    }
+    const lmsType = integrationResult.rows[0].lms_type;
+
     const query = `
-      SELECT sr.student_id, s.name, sr.image_uuids
+      SELECT sr.student_id, s.name, sr.image_uuids, sli.lms_user_id
       FROM studentResults sr
       JOIN student s ON sr.student_id = s.student_id
+      LEFT JOIN student_lms_integration sli ON sr.student_id = sli.student_id AND sli.lms_type = $2
       WHERE sr.exam_id = $1 AND sr.image_uuids IS NOT NULL
     `;
-    const result = await pool.query(query, [examId]);
+    const result = await pool.query(query, [examId, lmsType]);
     const submissions = [];
+    const skippedStudents = [];
+    
     for (const row of result.rows) {
       if (row.image_uuids && Object.keys(row.image_uuids).length > 0) {
-        const pdfBuffer = await this._generateStudentSubmissionPDF(examId, row.student_id, row.image_uuids);
-        submissions.push({
-          student_id: row.student_id,
-          student_name: row.name,
-          filename: `exam_${examId}_student_${row.student_id}_${row.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
-          pdfBuffer
-        });
+        // Only include students with LMS integration
+        if (row.lms_user_id) {
+          const pdfBuffer = await this._generateStudentSubmissionPDF(examId, row.student_id, row.image_uuids);
+          submissions.push({
+            student_id: row.student_id,
+            lms_user_id: row.lms_user_id,
+            student_name: row.name,
+            filename: `exam_${examId}_student_${row.student_id}_${row.name.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+            pdfBuffer
+          });
+        } else {
+          skippedStudents.push({ student_id: row.student_id, name: row.name });
+          console.warn(`Skipping student ${row.student_id} (${row.name}) - no LMS integration mapping`);
+        }
       }
     }
+    
+    if (skippedStudents.length > 0) {
+      console.log(`Summary: Processed ${submissions.length} students, skipped ${skippedStudents.length} students without LMS mapping:`, 
+        skippedStudents.map(s => `${s.name} (ID: ${s.student_id})`).join(', '));
+    }
+    
     return submissions;
   }
 
@@ -257,10 +324,20 @@ class LMSIntegrationService {
           image_uuids: imageUuids
         })
       });
+      
       if (!response.ok) {
-        throw new Error(`PDF generation failed: ${response.statusText}`);
+        const errorText = await response.text();
+        throw new Error(`PDF generation failed (${response.status}): ${errorText}`);
       }
-      return await response.buffer();
+      
+      // Check if response is PDF or JSON error
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const errorData = await response.json();
+        throw new Error(`PDF generation failed: ${errorData.error || 'Unknown error'}`);
+      }
+      
+      return Buffer.from(await response.arrayBuffer());
     } catch (error) {
       throw new Error(`Failed to generate PDF for student ${studentId}: ${error.message}`);
     }
@@ -268,11 +345,27 @@ class LMSIntegrationService {
 
   async _logIntegrationActivity(userId, lmsType, activityType, details) {
     try {
-      const query = `
-        INSERT INTO lms_integration_logs (user_id, lms_type, activity_type, details, created_at)
-        VALUES ($1, $2, $3, $4, NOW())
+      // Check if the logs table exists
+      const tableCheckQuery = `
+        SELECT EXISTS (
+          SELECT FROM information_schema.tables 
+          WHERE table_name = 'lms_integration_logs'
+        );
       `;
-      await pool.query(query, [userId, lmsType, activityType, JSON.stringify(details)]);
+      const tableCheck = await pool.query(tableCheckQuery);
+      
+      if (tableCheck.rows[0].exists) {
+        const query = `
+          INSERT INTO lms_integration_logs (user_id, lms_type, activity_type, details, created_at)
+          VALUES ($1, $2, $3, $4, NOW())
+        `;
+        await pool.query(query, [userId, lmsType, activityType, JSON.stringify(details)]);
+      } else {
+        // Log to console if table doesn't exist
+        console.log(`LMS Activity Log [${activityType}]:`, {
+          userId, lmsType, details
+        });
+      }
     } catch (error) {
       console.error('Failed to log integration activity:', error);
     }
@@ -362,12 +455,19 @@ class LMSIntegrationService {
       if (!integration) {
         throw new Error('LMS integration not configured for this class');
       }
+      
+      // Get instructor ID for logging
+      const instructorQuery = `SELECT instructor_id FROM classes WHERE class_id = $1`;
+      const instructorResult = await pool.query(instructorQuery, [classId]);
+      const instructorId = instructorResult.rows[0]?.instructor_id;
+      
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
       const result = await adapter.createAssignment(integration.lmsCourseId, assignmentData);
-      await this._logIntegrationActivity(classId, integration.lmsType, 'assignment_creation', {
+      await this._logIntegrationActivity(instructorId || classId, integration.lmsType, 'assignment_creation', {
         assignmentId: result.id,
         assignmentName: result.name,
-        pointsPossible: result.pointsPossible
+        pointsPossible: result.pointsPossible,
+        classId: classId
       });
       return result;
     } catch (error) {

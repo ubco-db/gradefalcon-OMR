@@ -17,8 +17,8 @@ def sanitize_filename(filename):
         filename = filename.replace(char, '_')
     return filename
 
-def create_pdf_from_images(images, student_name, student_id):
-    """Create a PDF from a list of images"""
+def create_pdf_from_images(images, student_name, student_id, compress_images=True):
+    """Create a PDF from a list of images with optional compression"""
     if not images:
         # Create an empty PDF with a message
         buffer = BytesIO()
@@ -40,6 +40,35 @@ def create_pdf_from_images(images, student_name, student_id):
             # Convert image data to PIL Image
             image = Image.open(BytesIO(image_data))
             
+            # Compress image if requested to reduce PDF size
+            if compress_images:
+                # Reduce image quality and size for smaller PDF
+                # Convert to RGB if necessary
+                if image.mode not in ('RGB', 'L'):
+                    image = image.convert('RGB')
+                
+                # Resize image to reduce file size (max 1200px width)
+                if image.width > 1200:
+                    ratio = 1200 / image.width
+                    new_size = (1200, int(image.height * ratio))
+                    image = image.resize(new_size, Image.Resampling.LANCZOS)
+                
+                # Compress the image
+                compressed_buffer = BytesIO()
+                if image.mode == 'L':
+                    # Grayscale image
+                    image.save(compressed_buffer, format='JPEG', quality=75, optimize=True)
+                else:
+                    # Color image
+                    image.save(compressed_buffer, format='JPEG', quality=70, optimize=True)
+                compressed_buffer.seek(0)
+                
+                # Use the compressed image
+                img_reader = ImageReader(compressed_buffer)
+            else:
+                # Use original image
+                img_reader = ImageReader(BytesIO(image_data))
+            
             # Calculate scaling to fit page while maintaining aspect ratio
             img_width, img_height = image.size
             scale_x = (page_width - 100) / img_width  # Leave 50pt margin on each side
@@ -54,7 +83,6 @@ def create_pdf_from_images(images, student_name, student_id):
             y = (page_height - new_height) / 2
             
             # Draw the image
-            img_reader = ImageReader(BytesIO(image_data))
             c.drawImage(img_reader, x, y, width=new_width, height=new_height)
             
             # Add image name as footer
@@ -69,6 +97,64 @@ def create_pdf_from_images(images, student_name, student_id):
     c.save()
     buffer.seek(0)
     return buffer.getvalue()
+
+def generate_student_pdf_handler(app, cassandra_client, request):
+    """Generate PDF for a single student's exam submission"""
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "Request body is required"}), 400
+        
+        exam_id = data.get('exam_id')
+        student_id = data.get('student_id')
+        image_uuids = data.get('image_uuids', {})
+        
+        if not exam_id or not student_id:
+            return jsonify({"error": "Missing exam_id or student_id"}), 400
+            
+        if not image_uuids:
+            return jsonify({"error": "No image UUIDs provided"}), 400
+        
+        # Initialize Cassandra client
+        if not cassandra_client.connected:
+            cassandra_client.connect()
+        
+        app.logger.info(f"Generating PDF for student {student_id} in exam {exam_id}")
+        
+        # Collect all images for this student from Cassandra
+        all_images = []
+        
+        # Get images from Cassandra using UUIDs
+        for page, page_images in image_uuids.items():
+            if isinstance(page_images, dict):
+                for image_type, uuid in page_images.items():
+                    if uuid:
+                        try:
+                            image_data = cassandra_client.get_image(uuid)
+                            if image_data and image_data.image_data:
+                                image_name = f"{page}_{image_type}.png"
+                                all_images.append((image_name, bytes(image_data.image_data)))
+                        except Exception as e:
+                            app.logger.error(f"Error retrieving image {uuid}: {e}")
+        
+        if not all_images:
+            app.logger.warning(f"No images found for student {student_id}")
+            # Create empty PDF with message
+            pdf_data = create_pdf_from_images([], f"Student {student_id}", student_id, compress_images=True)
+        else:
+            # Create PDF from images with compression to reduce file size
+            pdf_data = create_pdf_from_images(all_images, f"Student {student_id}", student_id, compress_images=True)
+            app.logger.info(f"Created compressed PDF for student {student_id}: {len(all_images)} images, size: {len(pdf_data)} bytes")
+        
+        # Return PDF as response
+        return pdf_data, 200, {
+            'Content-Type': 'application/pdf',
+            'Content-Disposition': f'attachment; filename=exam_{exam_id}_student_{student_id}.pdf'
+        }
+        
+    except Exception as e:
+        app.logger.error(f"Error generating student PDF: {e}")
+        return jsonify({"error": f"Failed to generate PDF: {str(e)}"}), 500
 
 def export_exam_results_handler(app, cassandra_client, request):
     """Export all students' scanned results for an exam as PDFs in a ZIP archive"""
@@ -124,10 +210,10 @@ def export_exam_results_handler(app, cassandra_client, request):
                             except Exception as e:
                                 app.logger.error(f"Error retrieving image {uuid}: {e}")
                 
-                # Create PDF from images
+                # Create PDF from images with compression
                 safe_name = sanitize_filename(student_name)
                 pdf_filename = f"{safe_name}-{student_id}.pdf"
-                pdf_data = create_pdf_from_images(all_images, student_name, student_id)
+                pdf_data = create_pdf_from_images(all_images, student_name, student_id, compress_images=True)
                 
                 pdf_path = f"{temp_dir}/{pdf_filename}"
                 with open(pdf_path, 'wb') as f:

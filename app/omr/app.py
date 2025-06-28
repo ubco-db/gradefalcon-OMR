@@ -12,7 +12,7 @@ from pdf_to_images import pdf_to_images
 from cassandra_client import CassandraClient
 import requests
 
-from export_functions import export_exam_results_handler
+from export_functions import export_exam_results_handler, generate_student_pdf_handler
 
 app = Flask(__name__)
 cassandra_client = CassandraClient()
@@ -617,6 +617,11 @@ def split_pdf():
 def export_exam_results():
     """Export all students' scanned results for an exam as PDFs in a ZIP archive"""
     return export_exam_results_handler(app, cassandra_client, request)
+
+@app.route('/generate_student_pdf', methods=['POST'])
+def generate_student_pdf():
+    """Generate PDF for a single student's exam submission"""
+    return generate_student_pdf_handler(app, cassandra_client, request)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

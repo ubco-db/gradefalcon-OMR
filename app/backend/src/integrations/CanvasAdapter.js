@@ -18,6 +18,11 @@ class CanvasAdapter extends LMSAdapter {
       ...options.headers
     };
 
+    // Don't set Content-Type for FormData requests
+    if (options.body && options.body.constructor.name === 'FormData') {
+      delete headers['Content-Type'];
+    }
+
     const response = await fetch(url, {
       ...options,
       headers
@@ -186,24 +191,76 @@ class CanvasAdapter extends LMSAdapter {
 
   async uploadSubmission(courseId, assignmentId, studentId, submissionData) {
     try {
+      // Step 1: Request upload permission to student's submission folder
       const formData = new FormData();
-      formData.append('submission[submission_type]', 'online_upload');
-      formData.append('submission[file_ids][]', await this._uploadFile(courseId, submissionData));
+      formData.append('name', submissionData.filename);
+      formData.append('file', submissionData.buffer, {
+        filename: submissionData.filename,
+        contentType: 'application/pdf'
+      });
 
-      const { data: response } = await this._makeRequest(
+      const { data: uploadResponse } = await this._makeRequest(
+        `/courses/${courseId}/assignments/${assignmentId}/submissions/${studentId}/files`,
+        {
+          method: 'POST',
+          body: formData
+        }
+      );
+
+      // Step 2: Upload file to Canvas storage using the provided upload URL
+      const fileFormData = new FormData();
+      if (uploadResponse.upload_params) {
+        Object.entries(uploadResponse.upload_params).forEach(([key, value]) => {
+          fileFormData.append(key, value);
+        });
+      }
+      
+      const fileParamName = uploadResponse.file_param || 'file';
+      fileFormData.append(fileParamName, submissionData.buffer, {
+        filename: submissionData.filename,
+        contentType: 'application/pdf'
+      });
+
+      const fileUploadResponse = await fetch(uploadResponse.upload_url, {
+        method: 'POST',
+        body: fileFormData
+      });
+
+      if (!fileUploadResponse.ok) {
+        const errorText = await fileUploadResponse.text();
+        throw new Error(`Failed to upload file to Canvas: ${fileUploadResponse.status} ${errorText}`);
+      }
+
+      const fileData = await fileUploadResponse.json();
+      const fileId = fileData.id;
+
+      // Step 3: Create submission with the uploaded file
+      const submissionPayload = {
+        submission: {
+          submission_type: 'online_upload',
+          file_ids: [fileId],
+          user_id: studentId
+        }
+      };
+
+      const { data: submissionResponse } = await this._makeRequest(
         `/courses/${courseId}/assignments/${assignmentId}/submissions`,
         {
           method: 'POST',
-          body: formData,
-          headers: {}
+          body: JSON.stringify(submissionPayload),
+          headers: {
+            'Content-Type': 'application/json'
+          }
         }
       );
 
       return {
         success: true,
-        submission_id: response.id,
+        submission_id: submissionResponse.id,
         student_id: studentId,
-        canvas_url: response.preview_url
+        file_id: fileId,
+        canvas_url: submissionResponse.preview_url || submissionResponse.url,
+        workflow_state: submissionResponse.workflow_state
       };
     } catch (error) {
       return {
@@ -214,39 +271,6 @@ class CanvasAdapter extends LMSAdapter {
     }
   }
 
-  async _uploadFile(courseId, submissionData) {
-    const formData = new FormData();
-    formData.append('name', submissionData.filename);
-    formData.append('size', submissionData.buffer.length);
-    formData.append('content_type', 'application/pdf');
-
-    const { data: uploadResponse } = await this._makeRequest(`/courses/${courseId}/files`, {
-      method: 'POST',
-      body: formData,
-      headers: {}
-    });
-
-    const fileFormData = new FormData();
-    Object.entries(uploadResponse.upload_params).forEach(([key, value]) => {
-      fileFormData.append(key, value);
-    });
-    fileFormData.append('file', submissionData.buffer, {
-      filename: submissionData.filename,
-      contentType: 'application/pdf'
-    });
-
-    const fileUploadResponse = await fetch(uploadResponse.upload_url, {
-      method: 'POST',
-      body: fileFormData
-    });
-
-    if (!fileUploadResponse.ok) {
-      throw new Error('Failed to upload file to Canvas');
-    }
-
-    const fileData = await fileUploadResponse.json();
-    return fileData.id;
-  }
 
   formatGradeData(studentScores, totalMarks) {
     return studentScores
