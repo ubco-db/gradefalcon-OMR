@@ -54,6 +54,15 @@ CREATE TABLE student_lms_integration (
     FOREIGN KEY (student_id) REFERENCES student(student_id) ON DELETE CASCADE
 );
 
+-- Function to update the updated_at column (defined here for use in multiple triggers)
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- Trigger for student_lms_integration updated_at
 CREATE TRIGGER update_student_lms_integration_updated_at
 BEFORE UPDATE ON student_lms_integration
@@ -216,13 +225,6 @@ CREATE TABLE lms_integrations  (
 -- This trigger will automatically set the updated_at column to the current timestamp whenever a row is updated
 -- in the lms_integrations table.
 -- For tracking sensitive date modifications
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = CURRENT_TIMESTAMP;
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER update_lms_integrations_updated_at
 BEFORE UPDATE ON lms_integrations
