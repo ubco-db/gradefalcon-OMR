@@ -10,27 +10,26 @@ class LMSAdapter {
   }
 
   /**
-   * Upload grades to the LMS
+   * Upload grades of `studentScores` to the LMS
    * @param {string|number} courseId - The course ID
    * @param {string|number} assignmentId - The assignment ID
-   * @param {Array} gradeData - Array of grade objects
+   * @param {Array} studentScores - Array of student score objects with lms_user_id
    * @returns {Promise<Object>} Grade upload result
    * @returns {number} returns.total - Total number of grades processed
    * @returns {number} returns.successCount - Number of successful uploads
    * @returns {number} returns.failureCount - Number of failed uploads
    * @returns {Array} returns.successful - Array of successful upload results
    * @returns {Array} returns.failed - Array of failed upload results
-   * @returns {string} returns.message - Summary message
    */
-  async uploadGrades(courseId, assignmentId, gradeData) {
+  async uploadGrades(courseId, assignmentId, studentScores) {
     throw new Error('uploadGrades method must be implemented by subclass');
   }
 
   /**
-   * Upload submission to the LMS
-   * @param {string|number} courseId - The course ID
+   * Upload submission of student `studentId` to the LMS
+   * @param {string|number} courseId - The course ID 
    * @param {string|number} assignmentId - The assignment ID
-   * @param {string|number} studentId - The student ID
+   * @param {string|number} lmsStudentId - The LMS student ID (e.g., Canvas user_id)
    * @param {Object} submissionData - Submission data object
    * @returns {Promise<Object>} Submission upload result
    * @returns {boolean} returns.success - Whether upload was successful
@@ -40,7 +39,7 @@ class LMSAdapter {
    * @returns {string} [returns.message] - Success/failure message
    * @returns {string} [returns.url] - URL to submission if available
    */
-  async uploadSubmission(courseId, assignmentId, studentId, submissionData) {
+  async uploadSubmission(courseId, assignmentId, lmsStudentId, submissionData) {
     throw new Error('uploadSubmission method must be implemented by subclass');
   }
 
@@ -102,19 +101,6 @@ class LMSAdapter {
   }
 
   /**
-   * Format grade data for LMS upload
-   * @param {Array} studentScores - Array of student score objects
-   * @param {number} totalMarks - Total possible marks
-   * @returns {Array<Object>} Formatted grade data
-   * @returns {number} returns[].student_id - Student ID
-   * @returns {number} returns[].score - Student score
-   * @returns {string} [returns[].comment] - Grade comment
-   */
-  formatGradeData(studentScores, totalMarks) {
-    throw new Error('formatGradeData method must be implemented by subclass');
-  }
-
-  /**
    * Format submission data for LMS upload
    * @param {Buffer} pdfBuffer - PDF file buffer
    * @param {string} filename - File name
@@ -125,7 +111,7 @@ class LMSAdapter {
     throw new Error('formatSubmissionData method must be implemented by subclass');
   }
 
-  /**
+  /** 
    * Get students from the LMS
    * @param {string|number} courseId - The course ID
    * @returns {Promise<Array<Object>>} Array of student objects

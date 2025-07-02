@@ -3,6 +3,10 @@ const MockLmsAdapter = require('./MockLmsAdapter');
 const pool = require('../utils/db');
 const { encrypt, decrypt } = require('../utils/crypto');
 
+
+/**
+ * @typedef {import('./LMSAdapter')} LMSAdapter
+ */
 class LMSIntegrationService {
   constructor() {
     this.adapters = new Map();
@@ -14,6 +18,9 @@ class LMSIntegrationService {
     this.adapters.set(lmsType, AdapterClass);
   }
 
+  /**
+ * @returns {LMSAdapter}
+ */
   createAdapter(lmsType, accessToken, config = {}) {
     const AdapterClass = this.adapters.get(lmsType);
     if (!AdapterClass) {
@@ -92,6 +99,8 @@ class LMSIntegrationService {
     }
   }
 
+  // TODO[Longsai]: use postgres.js for better case transformation
+  // currently the project is using a mixed of camelCase and snake_case
   async exportGradesToLMS(examId, assignmentId) {
     try {
       const examData = await this._getExamGrades(examId);
@@ -106,7 +115,6 @@ class LMSIntegrationService {
       const instructorId = instructorResult.rows[0]?.instructor_id;
       
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
-      const gradeData = adapter.formatGradeData(examData.studentScores, examData.totalMarks);
       
       // Check if any students don't have LMS mapping
       const studentsWithoutLMS = examData.studentScores.filter(student => !student.lms_user_id);
@@ -115,12 +123,14 @@ class LMSIntegrationService {
           studentsWithoutLMS.map(s => ({ student_id: s.student_id, name: s.name })));
       }
       
-      if (gradeData.length === 0) {
+      // Filter students with LMS mapping before sending to adapter
+      const studentsWithLMS = examData.studentScores.filter(student => student.lms_user_id);
+      if (studentsWithLMS.length === 0) {
         throw new Error('No students with LMS integration mapping found. Please import students from LMS first.');
       }
       
-      const result = await adapter.uploadGrades(integration.lmsCourseId, assignmentId, gradeData);
-      await this._logIntegrationActivity(instructorId || examData.classId, integration.lmsType, 'grade_export', {
+      const result = await adapter.uploadGrades(integration.lmsCourseId, assignmentId, studentsWithLMS, examData.totalMarks);
+      await this._logIntegrationActivity(instructorId || "", integration.lmsType, 'grade_export', {
         examId,
         assignmentId,
         classId: examData.classId,
@@ -165,13 +175,7 @@ class LMSIntegrationService {
       const errors = [];
       for (const submission of submissions) {
         try {
-          console.log(`DEBUG: About to upload submission:`, {
-            lmsCourseId: integration.lmsCourseId,
-            assignmentId: assignmentId,
-            lms_user_id: submission.lms_user_id,
-            filename: submission.filename
-          });
-          
+
           const submissionData = adapter.formatSubmissionData(
             submission.pdfBuffer,
             submission.filename,
@@ -205,7 +209,7 @@ class LMSIntegrationService {
         successCount: results.length,
         failureCount: errors.length
       };
-      await this._logIntegrationActivity(instructorId || examData.classId, integration.lmsType, 'submission_export', {
+      await this._logIntegrationActivity(instructorId || "", integration.lmsType, 'submission_export', {
         examId,
         assignmentId,
         classId: examData.classId,
@@ -343,33 +347,13 @@ class LMSIntegrationService {
     }
   }
 
+  // TODO[Longsai]: We might need a logging service or database table to store these logs
   async _logIntegrationActivity(userId, lmsType, activityType, details) {
-    try {
-      // Check if the logs table exists
-      const tableCheckQuery = `
-        SELECT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE table_name = 'lms_integration_logs'
-        );
-      `;
-      const tableCheck = await pool.query(tableCheckQuery);
-      
-      if (tableCheck.rows[0].exists) {
-        const query = `
-          INSERT INTO lms_integration_logs (user_id, lms_type, activity_type, details, created_at)
-          VALUES ($1, $2, $3, $4, NOW())
-        `;
-        await pool.query(query, [userId, lmsType, activityType, JSON.stringify(details)]);
-      } else {
-        // Log to console if table doesn't exist
-        console.log(`LMS Activity Log [${activityType}]:`, {
-          userId, lmsType, details
-        });
-      }
-    } catch (error) {
-      console.error('Failed to log integration activity:', error);
-    }
+    console.log(`LMS Activity Log [${activityType}]:`, {
+      userId, lmsType, details
+    });
   }
+
 
   async getUserIntegrations(userId) {
     try {
@@ -463,7 +447,7 @@ class LMSIntegrationService {
       
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
       const result = await adapter.createAssignment(integration.lmsCourseId, assignmentData);
-      await this._logIntegrationActivity(instructorId || classId, integration.lmsType, 'assignment_creation', {
+      await this._logIntegrationActivity(instructorId || "", integration.lmsType, 'assignment_creation', {
         assignmentId: result.id,
         assignmentName: result.name,
         pointsPossible: result.pointsPossible,
@@ -489,8 +473,6 @@ class LMSIntegrationService {
   _getLmsDisplayName(lmsType) {
     const displayNames = {
       'canvas': 'Canvas',
-      'moodle': 'Moodle',
-      'blackboard': 'Blackboard',
       'mocklms': 'Mock LMS (Testing)'
     };
     return displayNames[lmsType] || lmsType.charAt(0).toUpperCase() + lmsType.slice(1);

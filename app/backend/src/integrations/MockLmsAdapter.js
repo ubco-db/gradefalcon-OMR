@@ -1,3 +1,4 @@
+// @ts-check
 const LMSAdapter = require('./LMSAdapter');
 
 
@@ -173,14 +174,10 @@ class MockLmsAdapter extends LMSAdapter {
       htmlUrl: `${this.baseUrl}/courses/${courseId}/assignments/${newAssignment.id}`
     };
   }
-
-  async getEnrollments(courseId) {
+  
+    async uploadGrades(courseId, assignmentId, studentScores) {
     await this._simulateDelay();
-    return this.mockData.enrollments[courseId] || [];
-  }
-
-  async uploadGrades(courseId, assignmentId, grades) {
-    await this._simulateDelay();
+    
     
     if (!this.mockData.grades[courseId]) {
       this.mockData.grades[courseId] = {};
@@ -193,7 +190,7 @@ class MockLmsAdapter extends LMSAdapter {
     let successCount = 0;
     let failureCount = 0;
 
-    for (const grade of grades) {
+    for (const grade of studentScores) {
       try {
         this.mockData.grades[courseId][assignmentId][grade.student_id] = {
           score: grade.score,
@@ -220,8 +217,8 @@ class MockLmsAdapter extends LMSAdapter {
     return {
       successCount,
       failureCount,
-      results,
-      message: `Successfully uploaded ${successCount} grades, ${failureCount} failed`
+      total: studentScores.length,
+      results
     };
   }
 
@@ -252,14 +249,6 @@ class MockLmsAdapter extends LMSAdapter {
     };
   }
 
-  formatGradeData(studentScores, totalMarks) {
-    return studentScores.map(student => ({
-      student_id: student.student_id,
-      score: student.grade,
-      comment: `Score: ${student.grade}/${totalMarks}`,
-      student_name: student.name
-    }));
-  }
 
   formatSubmissionData(pdfBuffer, filename, studentId) {
     return {

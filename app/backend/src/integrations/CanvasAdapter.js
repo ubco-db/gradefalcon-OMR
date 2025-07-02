@@ -1,3 +1,4 @@
+// @ts-check
 const LMSAdapter = require('./LMSAdapter');
 const fetch = require('node-fetch');
 const FormData = require('form-data');
@@ -63,10 +64,15 @@ class CanvasAdapter extends LMSAdapter {
       results = results.concat(data);
 
       const linkHeader = response.headers.get('link');
-      const nextLink = linkHeader?.split(',').find(s => s.includes('rel="next"'));
-      url = nextLink ? nextLink.match(/<(.*?)>/)[1] : null;
+      url = '';
+      if (linkHeader) {
+        const nextLink = linkHeader?.split(',').find(s => s.includes('rel="next"'));
+        if (nextLink) {
+          const match = nextLink.match(/<(.*?)>/);
+          url = match ? match[1] : ''; // Extract the URL from the link header
+        } 
+      } 
     }
-
     return results;
   }
 
@@ -140,20 +146,22 @@ class CanvasAdapter extends LMSAdapter {
     }
   }
 
-  async uploadGrades(courseId, assignmentId, gradeData) {
+  
+  async uploadGrades(courseId, assignmentId, studentScores) {
+    
     const results = [];
     const errors = [];
 
-    for (const grade of gradeData) {
+    for (const grade of studentScores) {
       try {
         const payload = {
           submission: {
-            posted_grade: grade.score
+            posted_grade: grade.grade
           }
         };
 
         const { data: response } = await this._makeRequest(
-          `/courses/${courseId}/assignments/${assignmentId}/submissions/${grade.student_id}`,
+          `/courses/${courseId}/assignments/${assignmentId}/submissions/${grade.lms_user_id}`,
           {
             method: 'PUT',
             body: JSON.stringify(payload)
@@ -161,18 +169,18 @@ class CanvasAdapter extends LMSAdapter {
         );
 
         results.push({
-          student_id: grade.internal_student_id || grade.student_id,
-          lms_user_id: grade.student_id, // This is actually the LMS user ID
-          student_name: grade.student_name,
+          student_id: grade.student_id || grade.lms_user_id,
+          lmsUserId: grade.lms_user_id,
+          studentName: grade.student_name,
           success: true,
           grade: grade.score,
-          canvas_response: response.grade
+          canvasResponse: response.grade
         });
       } catch (error) {
         errors.push({
-          student_id: grade.internal_student_id || grade.student_id,
-          lms_user_id: grade.student_id, // This is actually the LMS user ID
-          student_name: grade.student_name,
+          studentId: grade.student_id || grade.lms_user_id,
+          lmsUserId: grade.lms_user_id,
+          studentName: grade.student_name,
           success: false,
           error: error.message,
           grade: grade.score
@@ -180,16 +188,20 @@ class CanvasAdapter extends LMSAdapter {
       }
     }
 
+    const successCount = results.length;
+    const failureCount = errors.length;
+    const total = studentScores.length;
+
     return {
       successful: results,
       failed: errors,
-      total: gradeData.length,
-      successCount: results.length,
-      failureCount: errors.length
+      total,
+      successCount,
+      failureCount
     };
   }
 
-  async uploadSubmission(courseId, assignmentId, studentId, submissionData) {
+  async uploadSubmission(courseId, assignmentId, lmsStudentId, submissionData) {
     try {
       // Step 1: Request upload permission to student's submission folder
       const formData = new FormData();
@@ -200,7 +212,7 @@ class CanvasAdapter extends LMSAdapter {
       });
 
       const { data: uploadResponse } = await this._makeRequest(
-        `/courses/${courseId}/assignments/${assignmentId}/submissions/${studentId}/files`,
+        `/courses/${courseId}/assignments/${assignmentId}/submissions/${lmsStudentId}/files`,
         {
           method: 'POST',
           body: formData
@@ -239,7 +251,7 @@ class CanvasAdapter extends LMSAdapter {
         submission: {
           submission_type: 'online_upload',
           file_ids: [fileId],
-          user_id: studentId
+          user_id: lmsStudentId
         }
       };
 
@@ -257,7 +269,7 @@ class CanvasAdapter extends LMSAdapter {
       return {
         success: true,
         submission_id: submissionResponse.id,
-        student_id: studentId,
+        student_id: lmsStudentId,
         file_id: fileId,
         canvas_url: submissionResponse.preview_url || submissionResponse.url,
         workflow_state: submissionResponse.workflow_state
@@ -265,24 +277,13 @@ class CanvasAdapter extends LMSAdapter {
     } catch (error) {
       return {
         success: false,
-        student_id: studentId,
+        student_id: lmsStudentId,
         error: error.message
       };
     }
   }
 
 
-  formatGradeData(studentScores, totalMarks) {
-    return studentScores
-      .filter(student => student.lms_user_id) // Only include students with LMS mapping
-      .map(student => ({
-        student_id: student.lms_user_id, // Use LMS user ID for Canvas
-        internal_student_id: student.student_id, // Keep internal ID for reference
-        score: student.grade,
-        percentage: totalMarks > 0 ? (student.grade / totalMarks) * 100 : 0,
-        student_name: student.name
-      }));
-  }
 
   formatSubmissionData(pdfBuffer, filename, studentId) {
     return {
@@ -290,42 +291,6 @@ class CanvasAdapter extends LMSAdapter {
       filename: filename,
       student_id: studentId,
       content_type: 'application/pdf'
-    };
-  }
-
-  async bulkUploadSubmissions(courseId, assignmentId, submissions) {
-    const results = [];
-    const errors = [];
-
-    for (const submission of submissions) {
-      try {
-        const result = await this.uploadSubmission(
-          courseId,
-          assignmentId,
-          submission.student_id,
-          submission.data
-        );
-
-        if (result.success) {
-          results.push(result);
-        } else {
-          errors.push(result);
-        }
-      } catch (error) {
-        errors.push({
-          success: false,
-          student_id: submission.student_id,
-          error: error.message
-        });
-      }
-    }
-
-    return {
-      successful: results,
-      failed: errors,
-      total: submissions.length,
-      successCount: results.length,
-      failureCount: errors.length
     };
   }
 
