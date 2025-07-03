@@ -1,3 +1,4 @@
+// @ts-check
 const CanvasAdapter = require('./CanvasAdapter');
 const MockLmsAdapter = require('./MockLmsAdapter');
 const pool = require('../utils/db');
@@ -129,7 +130,7 @@ class LMSIntegrationService {
         throw new Error('No students with LMS integration mapping found. Please import students from LMS first.');
       }
       
-      const result = await adapter.uploadGrades(integration.lmsCourseId, assignmentId, studentsWithLMS, examData.totalMarks);
+      const result = await adapter.uploadGrades(integration.lmsCourseId, assignmentId, studentsWithLMS);
       await this._logIntegrationActivity(instructorId || "", integration.lmsType, 'grade_export', {
         examId,
         assignmentId,
@@ -175,17 +176,10 @@ class LMSIntegrationService {
       const errors = [];
       for (const submission of submissions) {
         try {
-
-          const submissionData = adapter.formatSubmissionData(
-            submission.pdfBuffer,
-            submission.filename,
-            submission.lms_user_id
-          );
           const result = await adapter.uploadSubmission(
             integration.lmsCourseId,
             assignmentId,
-            submission.lms_user_id,
-            submissionData
+            submission
           );
           if (result.success) {
             results.push(result);
@@ -261,6 +255,16 @@ class LMSIntegrationService {
     };
   }
 
+  /**
+   * Retrieves and generates PDF submissions for all students who have submitted images for a given exam,
+   * including only those students who have an LMS integration mapping for the relevant LMS type.
+   *
+   * @async
+   * @param {number|string} examId - The unique identifier of the exam.
+   * @returns {Promise<Array<{student_id: number, lms_user_id: string, student_name: string, filename: string, pdfBuffer: Buffer}>>}
+   *   An array of objects containing student submission details and generated PDF buffers.
+   * @throws {Error} If the exam is not found or there is no LMS integration for the class.
+   */
   async _getExamSubmissions(examId) {
     // Get the LMS type for this class to join with correct LMS integration
     const examQuery = `SELECT class_id FROM exam WHERE exam_id = $1`;
@@ -347,7 +351,15 @@ class LMSIntegrationService {
     }
   }
 
-  // TODO[Longsai]: We might need a logging service or database table to store these logs
+  /**
+   * Logs LMS integration activity for auditing or debugging purposes.
+   * @private
+   * @param {string} userId
+   * @param {string} lmsType
+   * @param {string} activityType
+   * @param {object} details
+   * @returns {Promise<void>}
+   */
   async _logIntegrationActivity(userId, lmsType, activityType, details) {
     console.log(`LMS Activity Log [${activityType}]:`, {
       userId, lmsType, details

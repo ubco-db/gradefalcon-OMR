@@ -27,10 +27,13 @@ class LMSAdapter {
 
   /**
    * Upload submission of student `studentId` to the LMS
-   * @param {string|number} courseId - The course ID 
-   * @param {string|number} assignmentId - The assignment ID
-   * @param {string|number} lmsStudentId - The LMS student ID (e.g., Canvas user_id)
+   * @param {string|number} courseId - The course ID on LMS
+   * @param {string|number} assignmentId - The assignment ID on LMS
    * @param {Object} submissionData - Submission data object
+   * @param {string|number} submissionData.student_id - Local student ID
+   * @param {string|number} submissionData.lms_user_id - LMS user ID of the student
+   * @param {string} submissionData.filename - Filename for the submission
+   * @param {Buffer} submissionData.pdfBuffer - PDF buffer of the submission
    * @returns {Promise<Object>} Submission upload result
    * @returns {boolean} returns.success - Whether upload was successful
    * @returns {number} returns.studentId - Student ID
@@ -39,7 +42,7 @@ class LMSAdapter {
    * @returns {string} [returns.message] - Success/failure message
    * @returns {string} [returns.url] - URL to submission if available
    */
-  async uploadSubmission(courseId, assignmentId, lmsStudentId, submissionData) {
+  async uploadSubmission(courseId, assignmentId, submissionData) {
     throw new Error('uploadSubmission method must be implemented by subclass');
   }
 
@@ -100,16 +103,6 @@ class LMSAdapter {
     throw new Error('validateCredentials method must be implemented by subclass');
   }
 
-  /**
-   * Format submission data for LMS upload
-   * @param {Buffer} pdfBuffer - PDF file buffer
-   * @param {string} filename - File name
-   * @param {number} studentId - Student ID
-   * @returns {Object} Formatted submission data
-   */
-  formatSubmissionData(pdfBuffer, filename, studentId) {
-    throw new Error('formatSubmissionData method must be implemented by subclass');
-  }
 
   /** 
    * Get students from the LMS

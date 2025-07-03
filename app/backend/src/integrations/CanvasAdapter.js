@@ -11,7 +11,18 @@ class CanvasAdapter extends LMSAdapter {
     super(accessToken, { ...defaultConfig, ...config });
   }
 
-  async _makeRequest(endpoint, options = {}) {
+  /**
+       * Makes an HTTP request to the Canvas API with Bearer authentication.
+       * @async
+       * @param {string} endpoint - The API endpoint to request (relative to the base URL).
+       * @param {Object} [options={}] - Additional fetch options (e.g., method, headers, body, etc.).
+       * @param {Object} [options.headers] - Additional headers to include in the request.
+       * @param {*} [options.body] - The body of the request. If a FormData instance, 'Content-Type' is omitted.
+       * @param {string} [options.method] - The HTTP method to use for the request.
+       * @returns {Promise<{data: any, headers: {[k: string]: string}}>} An object containing the parsed JSON response data and response headers.
+       * @throws {Error} If the response status is not OK, throws an error with the status and response text.
+       */
+    async _makeRequest(endpoint, options = /** @type {{[key: string]: any}} */({})) {
     const url = `${this.baseUrl}${endpoint}`;
     const headers = {
       'Authorization': `Bearer ${this.accessToken}`,
@@ -37,7 +48,7 @@ class CanvasAdapter extends LMSAdapter {
     // Return headers for pagination
     return {
       data: await response.json(),
-      headers: response.headers
+      headers: Object.fromEntries(response.headers.entries())
     };
   }
 
@@ -146,12 +157,13 @@ class CanvasAdapter extends LMSAdapter {
     }
   }
 
-  
+    
   async uploadGrades(courseId, assignmentId, studentScores) {
     
     const results = [];
     const errors = [];
 
+    // upload grades with a for loop for each student
     for (const grade of studentScores) {
       try {
         const payload = {
@@ -200,19 +212,18 @@ class CanvasAdapter extends LMSAdapter {
       failureCount
     };
   }
-
-  async uploadSubmission(courseId, assignmentId, lmsStudentId, submissionData) {
+  
+  async uploadSubmission(courseId, assignmentId, submissionData) {
+    const lmsStudentId = submissionData.lms_user_id;
     try {
       // Step 1: Request upload permission to student's submission folder
       const formData = new FormData();
       formData.append('name', submissionData.filename);
-      formData.append('file', submissionData.buffer, {
-        filename: submissionData.filename,
-        contentType: 'application/pdf'
-      });
+      formData.append('size', submissionData.pdfBuffer.length);
+      formData.append('content_type', 'application/pdf');
 
       const { data: uploadResponse } = await this._makeRequest(
-        `/courses/${courseId}/assignments/${assignmentId}/submissions/${lmsStudentId}/files`,
+        `/courses/${courseId}/assignments/${assignmentId}/submissions/${submissionData.lms_user_id}/files`,
         {
           method: 'POST',
           body: formData
@@ -222,17 +233,19 @@ class CanvasAdapter extends LMSAdapter {
       // Step 2: Upload file to Canvas storage using the provided upload URL
       const fileFormData = new FormData();
       if (uploadResponse.upload_params) {
+        // Append upload_params to the FormData
         Object.entries(uploadResponse.upload_params).forEach(([key, value]) => {
           fileFormData.append(key, value);
         });
       }
       
       const fileParamName = uploadResponse.file_param || 'file';
-      fileFormData.append(fileParamName, submissionData.buffer, {
+      fileFormData.append(fileParamName, submissionData.pdfBuffer, {
         filename: submissionData.filename,
         contentType: 'application/pdf'
       });
 
+      // Not include Bearer token in the file upload request
       const fileUploadResponse = await fetch(uploadResponse.upload_url, {
         method: 'POST',
         body: fileFormData
@@ -271,8 +284,8 @@ class CanvasAdapter extends LMSAdapter {
         submission_id: submissionResponse.id,
         student_id: lmsStudentId,
         file_id: fileId,
-        canvas_url: submissionResponse.preview_url || submissionResponse.url,
-        workflow_state: submissionResponse.workflow_state
+        canvas_url: submissionResponse.preview_url || submissionResponse.url, // extra field for URL
+        workflow_state: submissionResponse.workflow_state // extra field for workflow state
       };
     } catch (error) {
       return {
@@ -281,17 +294,6 @@ class CanvasAdapter extends LMSAdapter {
         error: error.message
       };
     }
-  }
-
-
-
-  formatSubmissionData(pdfBuffer, filename, studentId) {
-    return {
-      buffer: pdfBuffer,
-      filename: filename,
-      student_id: studentId,
-      content_type: 'application/pdf'
-    };
   }
 
   async getStudents(courseId) {

@@ -4,6 +4,9 @@ const LMSAdapter = require('./LMSAdapter');
 
 const MOCK_ADAPTER_TOKEN_MIN_LENGTH = 10;
 class MockLmsAdapter extends LMSAdapter {
+  /**
+   * @param {any} accessToken
+   */
   constructor(accessToken, config = {}) {
     super(accessToken, config);
     this.baseUrl = 'https://mock-canvas.instructure.com';
@@ -131,10 +134,13 @@ class MockLmsAdapter extends LMSAdapter {
     }));
   }
 
+  /**
+   * @param {string | number} courseId
+   */
   async getAssignments(courseId) {
     await this._simulateDelay();
     const assignments = this.mockData.assignments[courseId] || [];
-    return assignments.map(assignment => ({
+    return assignments.map((/** @type {{ id: any; name: any; description: any; points_possible: any; course_id: any; }} */ assignment) => ({
       id: assignment.id,
       name: assignment.name,
       description: assignment.description,
@@ -143,6 +149,10 @@ class MockLmsAdapter extends LMSAdapter {
     }));
   }
 
+  /**
+   * @param {string} courseId
+   * @param {{ name: any; description: any; due_at: any; points_possible: any; submission_types: any; }} assignmentData
+   */
   async createAssignment(courseId, assignmentData) {
     await this._simulateDelay();
     
@@ -175,6 +185,11 @@ class MockLmsAdapter extends LMSAdapter {
     };
   }
   
+    /**
+   * @param {string | number} courseId
+   * @param {string | number} assignmentId
+   * @param {string | any[]} studentScores
+   */
     async uploadGrades(courseId, assignmentId, studentScores) {
     await this._simulateDelay();
     
@@ -222,7 +237,7 @@ class MockLmsAdapter extends LMSAdapter {
     };
   }
 
-  async uploadSubmission(courseId, assignmentId, studentId, submissionData) {
+  async uploadSubmission(courseId, assignmentId, submissionData) {
     await this._simulateDelay();
     
     if (!this.mockData.submissions[courseId]) {
@@ -234,7 +249,7 @@ class MockLmsAdapter extends LMSAdapter {
 
     const submissionId = `mock_submission_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    this.mockData.submissions[courseId][assignmentId][studentId] = {
+    this.mockData.submissions[courseId][assignmentId][submissionData.lms_user_id] = {
       id: submissionId,
       workflow_state: 'submitted',
       submitted_at: new Date().toISOString(),
@@ -243,22 +258,12 @@ class MockLmsAdapter extends LMSAdapter {
 
     return {
       success: true,
-      studentId: studentId,
-      submissionId: submissionId,
+      student_id: submissionData.student_id,
+      submission_id: submissionId,
       message: 'Submission uploaded successfully'
     };
   }
 
-
-  formatSubmissionData(pdfBuffer, filename, studentId) {
-    return {
-      filename: filename,
-      content_type: 'application/pdf',
-      size: pdfBuffer.length,
-      student_id: studentId,
-      file_data: pdfBuffer.toString('base64') // Mock file storage
-    };
-  }
 }
 
 module.exports = MockLmsAdapter;
