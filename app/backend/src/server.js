@@ -28,7 +28,7 @@ app.use(
       pool: pool,
       tableName: "session",
     }),
-    secret: "secret",
+    secret: "secret", // TODO[Longsai]: Use a secure secret 
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -40,8 +40,8 @@ app.use(
 );
 
 const checkJwt = auth({
-  audience: 'http://localhost:3000/api',
-  issuerBaseURL: 'https://dev-1wzrc3nphnk4w01y.ca.auth0.com',
+  audience: process.env.REACT_APP_AUTH0_AUDIENCE || 'https://your-production-domain.com/api',
+  issuerBaseURL: process.env.REACT_APP_AUTH0_ISSUERURL || 'https://your-auth0-domain.auth0.com',
 });
 
 const checkRole = (role) => {
@@ -97,7 +97,5 @@ app.get("/session-info", (req, res) => {
     userName: req.session.userName,
   });
 });
-
-const PORT = process.env.PORT || 80;
 
 module.exports = app;

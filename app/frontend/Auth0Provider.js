@@ -7,11 +7,11 @@ const root = createRoot(document.getElementById('root'));
 
 root.render(
   <Auth0Provider
-    domain="dev-1wzrc3nphnk4w01y.ca.auth0.com"
-    clientId="zUtm0FsUWaknfcSxpx3cyhFHNjIuVpoI"
+    domain={process.env.REACT_APP_AUTH0_DOMAIN}
+    clientId={process.env.REACT_APP_AUTH0_CLIENT_ID}
     authorizationParams={{
       redirect_uri: window.location.origin,
-      audience: "https://localhost:3000/api",
+      audience: process.env.REACT_APP_AUTH0_AUDIENCE,
       scope: "read:current_user update:current_user_metadata"
     }}
     cacheLocation="localstorage"
