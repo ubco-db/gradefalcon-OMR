@@ -6,7 +6,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "../../components/ui/ca
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../components/ui/tooltip"; // Assuming this is the correct path
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../../components/ui/table";
 import { ScrollArea } from "../../components/ui/scroll-area";
-import { Plus, FileIcon } from "lucide-react";
+import { Plus, FileIcon, Settings, Users } from "lucide-react";
 import { ChevronLeftIcon } from "@heroicons/react/20/solid";
 import { useAuth0 } from "@auth0/auth0-react"; // Import Auth0
 
@@ -122,6 +122,36 @@ const ClassManagement = () => {
               </TooltipTrigger>
               <TooltipContent>
                 Export grades as a csv file.
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Link to={`/class/${params.class_id}/import-students`}>
+                  <Button size="sm" variant="outline" className="h-8 gap-1">
+                    <Users className="h-4 w-4" />
+                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">Import</span>
+                  </Button>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                Import Students from LMS
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+          <TooltipProvider>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <Link to={`/ClassManagement/${params.class_id}/lms`}>
+                  <Button size="sm" variant="outline" className="h-8 gap-1">
+                    <Settings className="h-4 w-4" />
+                    <span className="sr-only sm:not-sr-only sm:whitespace-nowrap">LMS</span>
+                  </Button>
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent>
+                Configure Canvas Integration
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

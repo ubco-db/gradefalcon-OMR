@@ -3,6 +3,7 @@
 DROP TABLE IF EXISTS instructor CASCADE;
 DROP TABLE IF EXISTS classes CASCADE;
 DROP TABLE IF EXISTS student CASCADE;
+DROP TABLE IF EXISTS student_lms_integration CASCADE;
 DROP TABLE IF EXISTS exam CASCADE;
 DROP TABLE IF EXISTS solution CASCADE;
 DROP TABLE IF EXISTS enrollment CASCADE;
@@ -13,7 +14,7 @@ DROP TABLE IF EXISTS admins CASCADE;
 DROP TABLE IF EXISTS sessions CASCADE;
 DROP TABLE IF EXISTS grade_appeals CASCADE;
 DROP TABLE IF EXISTS session CASCADE;
-
+DROP TABLE IF EXISTS lms_integrations CASCADE;
 
 
 -- ////////// Create tables: /////////////////
@@ -40,6 +41,35 @@ CREATE TABLE student (
     email text unique,
     name text
 );
+
+-- Student LMS Integration table for storing lms id per student
+CREATE TABLE student_lms_integration (
+    integration_id SERIAL PRIMARY KEY,
+    student_id TEXT NOT NULL,
+    lms_user_id VARCHAR(255) NOT NULL,
+    lms_type VARCHAR(50) NOT NULL, -- 'canvas', 'moodle', etc.
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(student_id, lms_type),
+    FOREIGN KEY (student_id) REFERENCES student(student_id) ON DELETE CASCADE
+);
+
+-- Function to update the updated_at column (defined here for use in multiple triggers)
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger for student_lms_integration updated_at
+CREATE TRIGGER update_student_lms_integration_updated_at
+BEFORE UPDATE ON student_lms_integration
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+
 -- TODO: store pdf template in database
 CREATE TABLE exam (
     exam_id serial primary key,
@@ -75,7 +105,8 @@ CREATE TABLE enrollment(
     class_id int,
     student_id text,
     foreign key (class_id) references classes(class_id),
-    foreign key (student_id) references student(student_id)
+    foreign key (student_id) references student(student_id),
+    CONSTRAINT unique_class_student UNIQUE(class_id, student_id)
 );
 
 CREATE TABLE studentResults(
@@ -174,6 +205,76 @@ WITH (OIDS=FALSE);
 ALTER TABLE "session" ADD CONSTRAINT "session_pkey" PRIMARY KEY ("sid");
 
 CREATE INDEX "IDX_session_expire" ON "session" ("expire");
+
+-- Leaning Management System (LMS) Integrations 
+CREATE TABLE lms_integrations  (
+    integration_id SERIAL PRIMARY KEY,
+    class_id INT NOT NULL UNIQUE,
+    lms_type VARCHAR(50) NOT NULL, -- 'canvas', 'moodle', etc.
+    lms_course_id VARCHAR(255),      -- The course ID from the external LMS
+    encrypted_access_token TEXT NOT NULL,           -- This will be encrypted
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_class
+        FOREIGN KEY(class_id)
+        REFERENCES classes(class_id)
+        ON DELETE CASCADE
+);
+
+-- Trigger to update the updated_at column on any update
+-- This trigger will automatically set the updated_at column to the current timestamp whenever a row is updated
+-- in the lms_integrations table.
+-- For tracking sensitive date modifications
+
+CREATE TRIGGER update_lms_integrations_updated_at
+BEFORE UPDATE ON lms_integrations
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- Trigger to automatically unlink exams from LMS assignments when the class's
+-- LMS integration is changed (different provider or course) or removed.
+CREATE OR REPLACE FUNCTION unlink_exams_on_lms_change()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- This function is triggered before an UPDATE or DELETE on lms_integrations.
+    -- It unlinks exams if the LMS provider/course changes or if the integration is removed.
+
+    -- For UPDATE operations, we only act if the relevant fields are changing.
+    -- For DELETE operations, we always act.
+    IF (TG_OP = 'DELETE' OR (TG_OP = 'UPDATE' AND (OLD.lms_type IS DISTINCT FROM NEW.lms_type OR OLD.lms_course_id IS DISTINCT FROM NEW.lms_course_id))) THEN
+        DELETE FROM exam_lms_integrations
+        WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = OLD.class_id);
+    END IF;
+
+    -- Return the appropriate row to allow the original operation to proceed.
+    IF (TG_OP = 'UPDATE') THEN
+        RETURN NEW;
+    ELSE
+        RETURN OLD;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER lms_integrations_change_trigger
+    BEFORE UPDATE OR DELETE ON lms_integrations
+    FOR EACH ROW EXECUTE FUNCTION unlink_exams_on_lms_change();
+
+-- Exam LMS Integration table for storing assignment IDs per exam
+CREATE TABLE exam_lms_integrations (
+    integration_id SERIAL PRIMARY KEY,
+    exam_id INT NOT NULL,
+    lms_assignment_id VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (exam_id) REFERENCES exam(exam_id) ON DELETE CASCADE,
+    UNIQUE(exam_id) -- One assignment per exam for now, can be removed later for multiple LMS support
+);
+
+-- Trigger for exam_lms_integrations updated_at
+CREATE TRIGGER update_exam_lms_integrations_updated_at
+BEFORE UPDATE ON exam_lms_integrations
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
 
 -- ////////// Test value insertion: /////////////////
 

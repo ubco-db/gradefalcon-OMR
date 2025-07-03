@@ -33,6 +33,7 @@ import ReviewExams from './pages/Instructor/ReviewExams';
 import ViewExam from './pages/Instructor/ViewExam';
 import Reports from './pages/Instructor/Reports';
 import ViewReport from './pages/Instructor/ViewReport';
+import ImportStudents from './pages/ImportStudents';
 
 // Import Student pages
 import StudentDashboard from './pages/Student/StudentDashboard';
@@ -45,6 +46,9 @@ import StudentReportsDashboard from './pages/Student/StudentReportsDashboard';
 
 // grade appeal pages
 import ReplyAppeal from "./pages/Instructor/ReplyAppeal";
+
+// LMS integration page
+import LmsIntegration from "./pages/Instructor/LmsIntegration";
 
 function App() {
   return (
@@ -78,6 +82,7 @@ function App() {
           <Route path="/NotificationPreferences" element={<ProtectedRoute roles={['Instructor']}><Layout><NotificationPreferences /></Layout></ProtectedRoute>} />
           <Route path="/Reports" element={<ProtectedRoute roles={['Instructor']}><Layout><Reports /></Layout></ProtectedRoute>} />
           <Route path="/ViewReport/:report_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ViewReport /></Layout></ProtectedRoute>} />
+          <Route path="/class/:classId/import-students" element={<ProtectedRoute roles={['Instructor']}><Layout><ImportStudents /></Layout></ProtectedRoute>} />
 
           {/* Student Routes */}
           <Route path="/StudentDashboard" element={<ProtectedRoute roles={['Student']}><StudentLayout><StudentDashboard /></StudentLayout></ProtectedRoute>} />
@@ -89,6 +94,10 @@ function App() {
           <Route path="/StudentReportsDashboard" element={<ProtectedRoute roles={['Student']}><StudentLayout><StudentReportsDashboard /></StudentLayout></ProtectedRoute>} />
           {/* grade appeal routes */}
           <Route path="/ReplyAppeal/:grade_appeal_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ReplyAppeal /></Layout></ProtectedRoute>} />
+          
+          {/* LMS integration routes */}
+          <Route path="/ClassManagement/:classId/lms" element={<ProtectedRoute roles={['Instructor']}><Layout><LmsIntegration /></Layout></ProtectedRoute>} />
+          
           {/* Fallback for unmatched routes */}
           <Route path="*" element={<NotFound />} />
         </Routes>
