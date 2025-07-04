@@ -1,8 +1,9 @@
 const pool = require("../utils/db"); // Database connection pool
 const axios = require("axios"); // HTTP client for making requests
 const auth0Domain = process.env.REACT_APP_AUTH0_DOMAIN; // Auth0 domain from environment variables
-const clientId = process.env.REACT_APP_AUTH0_CLIENT_ID; // Auth0 client ID from environment variables
-const clientSecret = process.env.REACT_APP_AUTH0_CLIENT_SECRET; // Auth0 client secret from environment variables
+const clientId = process.env.AUTH0_M2M_CLIENT_ID;
+const clientSecret = process.env.AUTH0_M2M_CLIENT_SECRET
+
 const audience = `https://${auth0Domain}/api/v2/`; // Auth0 Management API audience
 
 // Generates a random password with a specified character set
@@ -112,6 +113,26 @@ const importClass = async (req, res) => {
 
   try {
     const managementApiToken = await getManagementApiAccessToken();
+    // Check if the Auth0 role 'student' exists
+    const getStudentRoleId = async (managementApiToken) => {
+      const response = await axios.get(
+        `https://${auth0Domain}/api/v2/roles`,
+        {
+          headers: {
+            Authorization: `Bearer ${managementApiToken}`,
+          },
+        }
+      );
+      const studentRole = response.data.find(r => r.name === "student");
+      return studentRole?.id;
+    };
+    const studentRoleId = await getStudentRoleId(managementApiToken);
+    if (!studentRoleId) {
+      console.error("Error: Auth0 role 'student' not found.");
+      return res.status(500).json({
+        message: "Auth0 role 'student' not found. Please create it in Auth0 before importing classes.",
+      });
+    }
 
     let classQuery = await pool.query("SELECT class_id FROM classes WHERE course_id = $1 AND instructor_id = $2", [
       courseId,
@@ -155,6 +176,29 @@ const importClass = async (req, res) => {
         auth0User = existingUsersResponse.data[0];
         if (!auth0User) return null;
       }
+      // Check for roles
+      const rolesResponse = await axios.get(
+        `https://${auth0Domain}/api/v2/users/${auth0User.user_id}/roles`,
+        {
+          headers: { Authorization: `Bearer ${managementApiToken}` },
+        }
+      );
+
+      const userRoles = rolesResponse.data;
+
+      // If no roles, assign student role
+      if (userRoles.length === 0) {
+        await axios.post(
+          `https://${auth0Domain}/api/v2/users/${auth0User.user_id}/roles`,
+          {
+            roles: [studentRoleId],
+          },
+          {
+            headers: { Authorization: `Bearer ${managementApiToken}` },
+          }
+        );
+      }
+
       const studentQuery = await pool.query("SELECT * FROM student WHERE student_id = $1::text", [student.studentID]);
       if (studentQuery.rows.length === 0) {
         await pool.query("INSERT INTO student (student_id, auth0_id, email, name) VALUES ($1, $2, $3, $4)", [
@@ -273,21 +317,21 @@ const deleteCourse = async (req, res, next) => {
     // Delete from studentResults
     await pool.query(`
       DELETE FROM studentResults 
-      WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = $1)`, 
+      WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = $1)`,
       [class_id]
     );
 
     // Delete from scannedExam
     await pool.query(`
       DELETE FROM scannedExam 
-      WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = $1)`, 
+      WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = $1)`,
       [class_id]
     );
 
     // Delete from solutions
     await pool.query(`
       DELETE FROM solution 
-      WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = $1)`, 
+      WHERE exam_id IN (SELECT exam_id FROM exam WHERE class_id = $1)`,
       [class_id]
     );
 
