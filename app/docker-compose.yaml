@@ -59,7 +59,7 @@ services:
       - ./frontend/src:/code/src
       - /code/node_modules
     env_file:
-      - ./backend/.env.docker
+      - ./frontend/.env
     networks:
       - app-network
     depends_on:

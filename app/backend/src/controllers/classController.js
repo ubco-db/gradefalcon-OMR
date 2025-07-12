@@ -1,6 +1,6 @@
 const pool = require("../utils/db"); // Database connection pool
 const axios = require("axios"); // HTTP client for making requests
-const auth0Domain = process.env.REACT_APP_AUTH0_DOMAIN; // Auth0 domain from environment variables
+const auth0Domain = process.env.AUTH0_DOMAIN; // Auth0 domain from environment variables
 const clientId = process.env.AUTH0_M2M_CLIENT_ID;
 const clientSecret = process.env.AUTH0_M2M_CLIENT_SECRET
 

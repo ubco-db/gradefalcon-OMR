@@ -1,9 +1,9 @@
 const pool = require('../utils/db');
 const axios = require('axios');
 
-const auth0Domain = process.env.REACT_APP_AUTH0_DOMAIN; // Auth0 domain from environment variables
-const clientId = process.env.REACT_APP_AUTH0_CLIENT_ID; // Auth0 client ID from environment variables
-const clientSecret = process.env.REACT_APP_AUTH0_CLIENT_SECRET; // Auth0 client secret from environment variables
+const auth0Domain = process.env.AUTH0_DOMAIN; // Auth0 domain from environment variables
+const clientId = process.env.AUTH0_CLIENT_ID; // Auth0 client ID from environment variables
+const clientSecret = process.env.AUTH0_CLIENT_SECRET; // Auth0 client secret from environment variables
 const audience = `https://${auth0Domain}/api/v2/`; // Auth0 Management API audience
 
 // Get all instructors
