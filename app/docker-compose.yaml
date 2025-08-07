@@ -7,7 +7,7 @@ services:
       target: development
     command: npm run start-watch
     env_file:
-      - ./backend/.env.docker
+      - ./backend/.env
     environment:
       - DATABASE_DB=root
       - DATABASE_USER=root
@@ -25,6 +25,7 @@ services:
       - ./backend/src/assets:/code/src/assets
       - ./backend/package.json:/code/package.json
       - ./backend/package-lock.json:/code/package-lock.json
+      - ./backend/tsconfig.json:/code/tsconfig.json
       - back-notused:/opt/app/node_modules
       - omr-inputs:/code/omr/inputs
       - omr-outputs:/code/omr/outputs

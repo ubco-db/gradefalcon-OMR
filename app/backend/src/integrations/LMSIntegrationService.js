@@ -342,7 +342,7 @@ class LMSIntegrationService {
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const errorData = await response.json();
-        throw new Error(`PDF generation failed: ${errorData.error || 'Unknown error'}`);
+        throw new Error(`PDF generation failed: ${(errorData && errorData['error']) || 'Unknown error'}`);
       }
       
       return Buffer.from(await response.arrayBuffer());

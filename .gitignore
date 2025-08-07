@@ -2,4 +2,5 @@
 .DS_Store
 app/omr/folder_expiry_times.json
 app/backend/coverage/
+app/backend/dist/
 /.dir-locals.el

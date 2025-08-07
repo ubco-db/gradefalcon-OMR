@@ -9,3 +9,4 @@ node_modules
 # Python bytecode
 *.pyc
 __pycache__/
+/backend/*.tsbuildinfo

@@ -123,7 +123,7 @@ const importClass = async (req, res) => {
           },
         }
       );
-      const studentRole = response.data.find(r => r.name === "student");
+      const studentRole = response.data.find(r => r.name === "Student");
       return studentRole?.id;
     };
     const studentRoleId = await getStudentRoleId(managementApiToken);
