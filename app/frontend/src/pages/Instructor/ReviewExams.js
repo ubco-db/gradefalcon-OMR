@@ -36,6 +36,7 @@ const ReviewExams = () => {
   console.log("Received exam_id:", exam_id);
   console.log("Received examType:", examType);
   console.log("Received numQuestions:", numQuestions);
+  console.log("Full location.state:", location.state);
 
   // Save current state to localStorage
   const saveStateToStorage = (data) => {

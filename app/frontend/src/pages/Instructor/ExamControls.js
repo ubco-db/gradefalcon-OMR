@@ -28,7 +28,12 @@ const ExamControls = () => {
     template,
     markingSchemes = [],
     templateId,
+    parsonsAnswerKey,
+    includeParsonsProblem,
+    parsonsMaxScore,
   } = location.state || {};
+
+  console.log("ExamControls received Parsons data:", { parsonsAnswerKey, includeParsonsProblem, parsonsMaxScore });
   const { toast } = useToast();
 
   // State variables for toggle buttons
@@ -47,12 +52,15 @@ const ExamControls = () => {
       questions,
       numQuestions,
       totalMarks,
-    examMaxAppeals,
+      examMaxAppeals,
       markingSchemes,
       template,
       canViewExam,
       canViewAnswers,
       templateId,
+      parsonsAnswerKey,
+      includeParsonsProblem,
+      parsonsMaxScore,
     });
 
     try {
@@ -75,6 +83,9 @@ const ExamControls = () => {
           canViewExam: canViewExam,
           canViewAnswers: canViewAnswers,
           templateId: templateId,
+          parsonsAnswerKey: parsonsAnswerKey,
+          includeParsonsProblem: includeParsonsProblem,
+          parsonsMaxScore: parsonsMaxScore,
         }),
       });
       console.log(response);

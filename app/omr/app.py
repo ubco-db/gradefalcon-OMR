@@ -13,6 +13,7 @@ from cassandra_client import CassandraClient
 import requests
 
 from export_functions import export_exam_results_handler, generate_student_pdf_handler
+from parsons_processor import process_parsons_answers, score_parsons_problem, calculate_edit_distance
 
 app = Flask(__name__)
 cassandra_client = CassandraClient()
@@ -210,6 +211,7 @@ def process_omr(exam_id):
     templates = data.get('templates')
     evaluation_json = data.get('evaluation_json')
     single_choice_only = data.get('single_choice_only', True)  # Default to True if not specified
+    parsons_config = data.get('parsons_config')  # Optional Parsons problem configuration
     
     if not templates:
         return jsonify({"error": "Missing templates in request body"}), 400
@@ -261,7 +263,7 @@ def process_omr(exam_id):
 
         # Process results and store images in Cassandra
         app.logger.info(f"Starting to process results and store images for exam_id: {exam_id}")
-        process_results_and_store_images(exam_id, single_choice_only)
+        process_results_and_store_images(exam_id, single_choice_only, parsons_config)
         app.logger.info(f"Completed processing results and storing images for exam_id: {exam_id}")
         
         # Process success, update expiry time to 2 hours later
@@ -277,7 +279,7 @@ def process_omr(exam_id):
         app.logger.error(f"OMR Script Exception: {e}")
         return jsonify({"error": str(e)}), 500
 
-def process_results_and_store_images(exam_id, single_choice_only=True):
+def process_results_and_store_images(exam_id, single_choice_only=True, parsons_config=None):
     """Process OMR results, store images in Cassandra, and create a combined result with UUIDs"""
     # Use exam_id specific directories
     base_input_dir = "./inputs"
@@ -366,9 +368,12 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
             with open(page2_results_file, 'r') as csvfile:
                 reader = csv.DictReader(csvfile)
                 headers_page2 = reader.fieldnames
+                app.logger.info(f"Page 2 headers: {headers_page2}")
                 
                 # process each row
                 for row in reader:
+                    app.logger.debug(f"Page 2 row keys: {list(row.keys())}")
+                    app.logger.debug(f"Page 2 row data: {row}")
                     page2_results.append(row)
     
     # merge page_1 and page_2 results
@@ -378,6 +383,7 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
     for p1_row in page1_results:
         student_id = p1_row.get('StudentID', p1_row.get('file_id', f"unknown_{uuid.uuid4()}"))
         app.logger.info(f"Processing student ID: {student_id}")
+        app.logger.info(f"Page 1 file_id: {p1_row.get('file_id')}")
         
         # store images to Cassandra
         front_original_path = os.path.join(input_dir, "page_1", p1_row['file_id'])
@@ -420,6 +426,38 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
                 # Check for multiple answers if single_choice_only is enabled
                 if single_choice_only and len(value.strip()) > 1:
                     student_result["has_multiple_answers"].append(key)
+        
+        # Process Parsons problem answers from both pages (but primarily page 2)
+        # Check page 1 first (in case Parsons data is there)
+        parsons_answers = process_parsons_answers(p1_row)
+        app.logger.debug(f"Parsons answers from page 1 for student {student_id}: {parsons_answers}")
+        
+        if parsons_answers and parsons_config:
+            student_result["parsons_sequence"] = parsons_answers
+            
+            # Calculate Parsons score using edit distance
+            correct_sequence = parsons_config.get('correct_sequence', [])
+            max_score = parsons_config.get('max_score', 10)
+            
+            if correct_sequence:
+                parsons_score = score_parsons_problem(
+                    parsons_answers, 
+                    correct_sequence, 
+                    max_score
+                )
+                student_result["parsons_score"] = parsons_score
+                
+                # Add to total score if applicable
+                try:
+                    current_score = float(student_result["Score"]) if student_result["Score"] else 0
+                    total_score = current_score + parsons_score
+                    student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
+                except (ValueError, TypeError) as e:
+                    app.logger.error(f"Error adding Parsons score to total: {e}")
+                    
+        elif parsons_answers:
+            # Store sequence even without scoring configuration
+            student_result["parsons_sequence"] = parsons_answers
         
         # If page_2 data exists, find matching row
         if has_page2 and page2_results:
@@ -520,7 +558,7 @@ def get_student_scores():
     
     if not os.path.exists(student_results_path):
         # If the file doesn't exist, call process_results_and_store_images
-        process_results_and_store_images(exam_id, single_choice_only)
+        process_results_and_store_images(exam_id, single_choice_only, None)
         
         # Check again after processing
         if not os.path.exists(student_results_path):
@@ -537,6 +575,7 @@ def get_student_scores():
 
 @app.route('/split_pdf', methods=['POST'])
 def split_pdf():
+    app.logger.info("DEBUG: split_pdf endpoint called!")
     try:
         # check if pdf file is uploaded
         if 'pdf_file' not in request.files:
@@ -574,6 +613,7 @@ def split_pdf():
         
         # process pdf file
         try:
+            app.logger.info(f"DEBUG: PDF processing params - double_side={double_side}, is_custom={is_custom}")
             # call pdf_to_images and get return result
             results = pdf_to_images(input_dir, input_dir, double_pages=double_side, is_custom=is_custom)
             
@@ -622,6 +662,43 @@ def export_exam_results():
 def generate_student_pdf():
     """Generate PDF for a single student's exam submission"""
     return generate_student_pdf_handler(app, cassandra_client, request)
+
+@app.route('/score_parsons', methods=['POST'])
+def score_parsons():
+    """
+    Endpoint to score individual Parsons problems using edit distance.
+    Expected JSON payload:
+    {
+        "student_sequence": [30, 15, 2, 1],
+        "correct_sequence": [1, 2, 15, 30],
+        "max_score": 10
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "JSON data required"}), 400
+        
+        student_sequence = data.get('student_sequence')
+        correct_sequence = data.get('correct_sequence')
+        max_score = data.get('max_score', 10)
+        
+        if not student_sequence or not correct_sequence:
+            return jsonify({"error": "Both student_sequence and correct_sequence are required"}), 400
+        
+        score = score_parsons_problem(student_sequence, correct_sequence, max_score)
+        
+        return jsonify({
+            "student_sequence": student_sequence,
+            "correct_sequence": correct_sequence,
+            "score": score,
+            "max_score": max_score,
+            "edit_distance": calculate_edit_distance(student_sequence, correct_sequence)
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f"Error scoring Parsons problem: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

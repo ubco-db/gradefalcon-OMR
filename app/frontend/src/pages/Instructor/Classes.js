@@ -130,104 +130,143 @@ const Classes = () => {
   };
 
   return (
-    <main className="flex flex-col gap-4">
-      <div>
+    <main className="flex flex-col gap-4 p-4">
+      <div className="flex-1 flex flex-col max-w-full">
         <h1 className="text-3xl font-bold mb-4">Classes</h1>
-        <Tabs value={filter} onValueChange={setFilter} className="w-full">
+        <Tabs value={filter} onValueChange={setFilter} className="w-full flex-1 flex flex-col">
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="active">Active</TabsTrigger>
             <TabsTrigger value="archived">Archived</TabsTrigger>
             <TabsTrigger value="all">All</TabsTrigger>
           </TabsList>
-          <TabsContent value={filter}>
-            <Card className="bg-white border rounded">
-              <CardContent>
-                <ScrollArea className="max-h-80">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Class Name</TableHead>
-                        <TableHead className="hidden sm:table-cell">Course ID</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead className="hidden sm:table-cell"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredClasses.map((classItem, index) => {
-                        const status = classItem.active === null || classItem.active === true ? "Active" : "Archived";
-                        const statusClass = classItem.active === null || classItem.active === true ? "text-green-600 border-green-600" : "text-gray-500 border-gray-500";
-                        return (
-                          <TooltipProvider key={index}>
-                            <Tooltip delayDuration={0}>
-                              <TooltipTrigger asChild>
-                                <TableRow className="hover:bg-gray-100 cursor-pointer">
-                                  <TableCell onClick={() => navigate(`/ClassManagement/${classItem.class_id}`)}>
-                                    <div className="font-medium">{classItem.course_name}</div>
-                                  </TableCell>
-                                  <TableCell className="hidden sm:table-cell" onClick={() => navigate(`/ClassManagement/${classItem.class_id}`)}>
-                                    {classItem.course_id}
-                                  </TableCell>
-                                  <TableCell onClick={() => navigate(`/ClassManagement/${classItem.class_id}`)}>
-                                    <Badge variant="outline" className={statusClass}>
-                                      {status}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell className="hidden sm:table-cell flex justify-end">
-                                    <DropdownMenu>
-                                      <DropdownMenuTrigger asChild>
-                                        <Button variant="ghost" size="sm" className="flex items-center">
-                                          <MoreHorizontal className="h-5 w-5" />
-                                        </Button>
-                                      </DropdownMenuTrigger>
-                                      <DropdownMenuContent>
-                                        {classItem.active ? (
-                                          <DropdownMenuItem
-                                            onClick={(e) => {
-                                              e.stopPropagation(); // Prevent row click event
-                                              handleArchiveCourse(classItem.class_id);
-                                            }}
-                                          >
-                                            Archive Course
-                                          </DropdownMenuItem>
-                                        ) : (
-                                          <DropdownMenuItem
-                                            onClick={(e) => {
-                                              e.stopPropagation(); // Prevent row click event
-                                              handleUnarchiveCourse(classItem.class_id);
-                                            }}
-                                          >
-                                            Re-activate Course
-                                          </DropdownMenuItem>
-                                        )}
-                                        <DropdownMenuItem
-                                          onClick={(e) => {
-                                            e.stopPropagation(); // Prevent row click event
-                                            setSelectedClass(classItem);
-                                            setDialogOpen(true);
-                                          }}
-                                        >
-                                          Delete Course
-                                        </DropdownMenuItem>
-                                      </DropdownMenuContent>
-                                    </DropdownMenu>
-                                  </TableCell>
-                                </TableRow>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p>Click to view course</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+          <TabsContent value={filter} className="flex-1 flex flex-col">
+            <Card className="bg-white border rounded shadow-sm max-h-fit">
+              <CardHeader className="px-6 py-4 border-b">
+                <CardTitle className="text-lg font-semibold">
+                  {filter === "active" && "Active Classes"}
+                  {filter === "archived" && "Archived Classes"}
+                  {filter === "all" && "All Classes"}
+                </CardTitle>
+                <CardDescription className="text-sm text-gray-600">
+                  {filteredClasses.length} {filteredClasses.length === 1 ? 'class' : 'classes'} found
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <ScrollArea className="h-80 w-full">
+                  <div className="px-6 py-2">
+                    <Table>
+                      <TableHeader className="sticky top-0 bg-white z-10">
+                        <TableRow className="border-b">
+                          <TableHead className="font-semibold">Class Name</TableHead>
+                          <TableHead className="hidden sm:table-cell font-semibold">Course ID</TableHead>
+                          <TableHead className="font-semibold">Status</TableHead>
+                          <TableHead className="hidden sm:table-cell font-semibold text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredClasses.length > 0 ? (
+                          filteredClasses.map((classItem, index) => {
+                            const status = classItem.active === null || classItem.active === true ? "Active" : "Archived";
+                            const statusClass = classItem.active === null || classItem.active === true ? "text-green-600 border-green-600 bg-green-50" : "text-gray-500 border-gray-500 bg-gray-50";
+                            return (
+                              <TooltipProvider key={index}>
+                                <Tooltip delayDuration={0}>
+                                  <TooltipTrigger asChild>
+                                    <TableRow className="hover:bg-gray-50 cursor-pointer transition-colors border-b">
+                                      <TableCell 
+                                        onClick={() => navigate(`/ClassManagement/${classItem.class_id}`)}
+                                        className="py-4"
+                                      >
+                                        <div className="font-medium text-gray-900">{classItem.course_name}</div>
+                                      </TableCell>
+                                      <TableCell 
+                                        className="hidden sm:table-cell py-4" 
+                                        onClick={() => navigate(`/ClassManagement/${classItem.class_id}`)}
+                                      >
+                                        <div className="text-gray-700">{classItem.course_id}</div>
+                                      </TableCell>
+                                      <TableCell 
+                                        onClick={() => navigate(`/ClassManagement/${classItem.class_id}`)}
+                                        className="py-4"
+                                      >
+                                        <Badge variant="outline" className={`${statusClass} text-xs font-medium px-2 py-1`}>
+                                          {status}
+                                        </Badge>
+                                      </TableCell>
+                                      <TableCell className="hidden sm:table-cell py-4">
+                                        <div className="flex justify-end">
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <Button variant="ghost" size="sm" className="h-8 w-8 p-0 hover:bg-gray-100">
+                                                <MoreHorizontal className="h-4 w-4" />
+                                              </Button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end" className="w-48">
+                                              {classItem.active ? (
+                                                <DropdownMenuItem
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleArchiveCourse(classItem.class_id);
+                                                  }}
+                                                  className="text-sm"
+                                                >
+                                                  Archive Course
+                                                </DropdownMenuItem>
+                                              ) : (
+                                                <DropdownMenuItem
+                                                  onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleUnarchiveCourse(classItem.class_id);
+                                                  }}
+                                                  className="text-sm"
+                                                >
+                                                  Re-activate Course
+                                                </DropdownMenuItem>
+                                              )}
+                                              <DropdownMenuItem
+                                                onClick={(e) => {
+                                                  e.stopPropagation();
+                                                  setSelectedClass(classItem);
+                                                  setDialogOpen(true);
+                                                }}
+                                                className="text-sm text-red-600 focus:text-red-600"
+                                              >
+                                                Delete Course
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        </div>
+                                      </TableCell>
+                                    </TableRow>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>Click to view course details</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            );
+                          })
+                        ) : (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-12 text-gray-500">
+                              <div className="flex flex-col items-center gap-2">
+                                <div className="text-gray-400 text-4xl">📚</div>
+                                <div>No classes found for the selected filter.</div>
+                                <div className="text-sm">Create a new class to get started.</div>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </ScrollArea>
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
-        <Card className="bg-white border rounded mt-6">
+        
+        <Card className="bg-white border rounded shadow-sm mt-6">
           <CardHeader className="flex justify-between px-6 py-4">
             <div>
               <CardTitle className="mb-2">Create a New Class</CardTitle>

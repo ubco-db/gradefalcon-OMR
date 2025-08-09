@@ -39,7 +39,9 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../
 
 const ManualExamKey = () => {
   const location = useLocation();
-  const { examTitle, classID, courseId, template, numQuestions: initialNumQuestions, templateId } = location.state || {};  // Extract numQuestions
+  const { examTitle, classID, courseId, template, numQuestions: initialNumQuestions, templateId, includeParsonsProblem, parsonsPositions, parsonsMaxScore } = location.state || {};  // Extract numQuestions and Parsons config
+  
+  console.log("ManualExamKey received Parsons config:", { includeParsonsProblem, parsonsPositions, parsonsMaxScore });
   const [numQuestions, setNumQuestions] = useState(initialNumQuestions || 10);
   const [numOptions, setNumOptions] = useState(5);
   const [totalMarks, setTotalMarks] = useState();
@@ -56,6 +58,8 @@ const ManualExamKey = () => {
     incorrect: 0,
     unmarked: 0,
   });
+  const [parsonsAnswerKey, setParsonsAnswerKey] = useState([]);
+  const parsonsInitializedRef = useRef(false);
 
   const frameworks = Array.from({ length: numQuestions }, (_, j) => ({
     value: `Question ${j + 1}`,
@@ -146,6 +150,19 @@ const ManualExamKey = () => {
     updateQuestions();
   }, [numQuestions, numOptions, updateQuestions]);
 
+  // Separate useEffect for Parsons initialization to avoid dependency issues
+  useEffect(() => {
+    if (includeParsonsProblem && parsonsPositions && (!parsonsInitializedRef.current || parsonsAnswerKey.length !== parsonsPositions)) {
+      const initialKey = Array.from({ length: parsonsPositions }, (_, i) => ({ position: i + 1, itemNumber: '' }));
+      setParsonsAnswerKey(initialKey);
+      parsonsInitializedRef.current = true;
+    } else if (!includeParsonsProblem) {
+      // Clear the array if Parsons is disabled
+      setParsonsAnswerKey([]);
+      parsonsInitializedRef.current = false;
+    }
+  }, [includeParsonsProblem, parsonsPositions, parsonsAnswerKey.length]);
+
   const handleSelectChange = (values) => {
     setCustomScheme((prev) => ({
       ...prev,
@@ -198,6 +215,16 @@ const ManualExamKey = () => {
 
   const handleDeleteScheme = (index) => {
     setMarkingSchemes((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleParsonsAnswerChange = (position, value) => {
+    setParsonsAnswerKey((prev) => {
+      const updated = prev.map((item) =>
+        item.position === position ? { ...item, itemNumber: value } : item
+      );
+      console.log("Updated Parsons answer key:", updated);
+      return updated;
+    });
   };
   
   const handleFileSelect = () => {
@@ -350,6 +377,12 @@ const ManualExamKey = () => {
           markingSchemes: markingSchemes,
           template: template,
           templateId: templateId,
+          parsonsAnswerKey: includeParsonsProblem ? parsonsAnswerKey : null,
+          includeParsonsProblem: includeParsonsProblem,
+          parsonsMaxScore: parsonsMaxScore,
+        }}
+        onClick={() => {
+          console.log("Navigating to ExamControls with Parsons answer key:", parsonsAnswerKey);
         }}
       >
         <Button size="icon" className="h-10 w-10">
@@ -477,6 +510,50 @@ const ManualExamKey = () => {
         </div>
         </Card>
       </div>
+
+      {/* Parsons Problem Answer Key Section */}
+      {includeParsonsProblem && (
+        <Card className="bg-white border rounded-lg w-full md:w-full p-6">
+          <CardHeader>
+            <CardTitle>Parsons Problem Answer Key</CardTitle>
+            <CardDescription>
+              Set the correct sequence for the code ordering problem. 
+              Enter the item numbers in the order they should appear.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {parsonsAnswerKey.map((item) => (
+                <div key={item.position} className="space-y-2">
+                  <Label htmlFor={`pos-${item.position}`} className="text-sm font-medium">
+                    Position {item.position}
+                  </Label>
+                  <Input
+                    id={`pos-${item.position}`}
+                    type="number"
+                    min="1"
+                    max="999"
+                    placeholder="Item #"
+                    value={item.itemNumber}
+                    onChange={(e) => handleParsonsAnswerChange(item.position, e.target.value)}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Which item should be in {item.position === 1 ? '1st' : item.position === 2 ? '2nd' : item.position === 3 ? '3rd' : `${item.position}th`} position
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+              <h4 className="text-sm font-medium text-blue-900">Example:</h4>
+              <p className="text-sm text-blue-800 mt-1">
+                If your code items are numbered 1-20 and the correct sequence is items 3, 7, 1, 12, then enter:
+                Position 1: 3, Position 2: 7, Position 3: 1, Position 4: 12
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-white border rounded-lg w-full md:w-full p-0 md:h-auto">
         <CardHeader className="flex flex-row items-center bg-muted/50 px-6 py-4 w-full">

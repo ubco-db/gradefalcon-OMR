@@ -5,26 +5,41 @@ import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { useAuth0 } from "@auth0/auth0-react"; // Import Auth0
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "./ui/card";
+import { Checkbox } from "./ui/checkbox";
 import {ArrowDownIcon} from "@heroicons/react/20/solid";
 
-const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, onOptionsChange, onTemplateIdChange }) => {
+const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, onOptionsChange, onTemplateIdChange, onParsonsConfigChange }) => {
   const { getAccessTokenSilently } = useAuth0(); // Get the token
   const [numQuestions, setNumQuestions] = useState(10);
   const [numOptions, setNumOptions] = useState(4);
+  const [includeParsonsProblem, setIncludeParsonsProblem] = useState(false);
+  const [parsonsPositions, setParsonsPositions] = useState(4);
+  const [parsonsMaxScore, setParsonsMaxScore] = useState(10);
 
   useEffect(() => {
     // Pass the numQuestions back to the parent component whenever it changes
     if (onQuestionsChange) {
       onQuestionsChange(numQuestions);
     }
-  }, [numQuestions, onQuestionsChange]);
+  }, [numQuestions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // Pass the numOptions back to the parent component whenever it changes
     if (onOptionsChange) {
       onOptionsChange(numOptions);
     }
-  }, [numOptions, onOptionsChange]);
+  }, [numOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // Pass the Parsons configuration back to the parent component whenever it changes
+    if (onParsonsConfigChange) {
+      onParsonsConfigChange({
+        includeParsonsProblem,
+        parsonsPositions,
+        parsonsMaxScore
+      });
+    }
+  }, [includeParsonsProblem, parsonsPositions, parsonsMaxScore]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGeneratePDF = async () => {
     try {
@@ -35,7 +50,16 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`, // Include the token in the request
         },
-        body: JSON.stringify({ classId, courseId, examTitle, numQuestions, numOptions }),
+        body: JSON.stringify({ 
+          classId, 
+          courseId, 
+          examTitle, 
+          numQuestions, 
+          numOptions,
+          includeParsonsProblem,
+          parsonsPositions,
+          parsonsMaxScore
+        }),
       });
 
       if (!response.ok) {
@@ -99,6 +123,61 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
                 className="mt-1 block w-full"
               />
             </div>
+            
+            {/* Parsons Problem Section */}
+            <div className="mb-6 border-t pt-6">
+              <div className="flex items-center space-x-2 mb-4">
+                <Checkbox
+                  id="include-parsons"
+                  checked={includeParsonsProblem}
+                  onCheckedChange={setIncludeParsonsProblem}
+                />
+                <Label htmlFor="include-parsons" className="text-sm font-medium text-gray-700">
+                  Include Parsons Problem (Code Ordering)
+                </Label>
+              </div>
+              
+              {includeParsonsProblem && (
+                <div className="ml-6 space-y-4">
+                  <div>
+                    <Label htmlFor="parsons-positions" className="block text-sm font-medium text-gray-700">
+                      Number of Positions to Order
+                    </Label>
+                    <Input
+                      type="number"
+                      id="parsons-positions"
+                      value={parsonsPositions}
+                      onChange={(e) => setParsonsPositions(parseInt(e.target.value, 10))}
+                      min={2}
+                      max={20}
+                      className="mt-1 block w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Students fill multiple bubbles per row for multi-digit numbers (e.g., bubbles "1" + "5" = item 15)
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <Label htmlFor="parsons-max-score" className="block text-sm font-medium text-gray-700">
+                      Maximum Score for Parsons Problem
+                    </Label>
+                    <Input
+                      type="number"
+                      id="parsons-max-score"
+                      value={parsonsMaxScore}
+                      onChange={(e) => setParsonsMaxScore(parseInt(e.target.value, 10))}
+                      min={1}
+                      max={50}
+                      className="mt-1 block w-full"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Points awarded based on edit distance from correct sequence
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+            
             <Button onClick={handleGeneratePDF} className="mt-4">
               Generate PDF
               <ArrowDownIcon className="h-4 w-4 ml-2" />

@@ -4,6 +4,7 @@ const path = require("path");
 const { exec } = require('child_process');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
+const { Blob } = require('buffer');
 
 // Template cache: in-memory storage for templates
 const templateCache = new Map();
@@ -46,6 +47,34 @@ const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
 
   // No existing resource found, create a new ID
   return uuidv4();
+};
+
+/**
+ * Helper function to normalize answer data from database
+ * Handles both old format (array) and new format (object with mcq/parsons)
+ * @param {Object|Array} rawAnswers - Raw answers from database
+ * @returns {Object} - Normalized answer structure { mcq: [], parsons: null }
+ */
+const normalizeAnswers = (rawAnswers) => {
+  if (!rawAnswers) {
+    return { mcq: [], parsons: null };
+  }
+  
+  // Handle old format (direct array)
+  if (Array.isArray(rawAnswers)) {
+    return { mcq: rawAnswers, parsons: null };
+  }
+  
+  // Handle new format (object with mcq and parsons)
+  if (typeof rawAnswers === 'object' && rawAnswers.mcq !== undefined) {
+    return {
+      mcq: rawAnswers.mcq || [],
+      parsons: rawAnswers.parsons || null
+    };
+  }
+  
+  // Fallback
+  return { mcq: [], parsons: null };
 };
 
 /**
@@ -151,7 +180,7 @@ const finalizeResource = async (req, res) => {
 };
 
 const saveQuestions = async (req, res, next) => {
-  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId, single_choice_only } = req.body;
+  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId, single_choice_only, parsonsAnswerKey, includeParsonsProblem, parsonsMaxScore } = req.body;
 
   console.log("Received data:", {
     questions: questions ? "Provided" : "Not provided",
@@ -165,7 +194,10 @@ const saveQuestions = async (req, res, next) => {
     canViewExam,
     canViewAnswers,
     templateId,
-    single_choice_only
+    single_choice_only,
+    parsonsAnswerKey: parsonsAnswerKey ? "Provided" : "Not provided",
+    includeParsonsProblem,
+    parsonsMaxScore
   });
 
   // Determine template source - from cache or provided in request
@@ -212,11 +244,21 @@ const saveQuestions = async (req, res, next) => {
 
     const insertedRowId = writeToExam.rows[0].exam_id;
 
+    // Prepare answer data including Parsons if applicable
+    const answerData = {
+      mcq: questions || [],
+      parsons: includeParsonsProblem ? {
+        answerKey: parsonsAnswerKey || [],
+        maxScore: parsonsMaxScore || 10,
+        enabled: true
+      } : null
+    };
+
     const writeToSolution = await pool.query(
       "INSERT INTO solution (exam_id, answers, marking_schemes, single_choice_only) VALUES ($1, $2, $3, $4)",
       [
         insertedRowId,
-        JSON.stringify(questions),
+        JSON.stringify(answerData),
         JSON.stringify(markingSchemes),
         isSingleChoiceOnly
       ]
@@ -352,14 +394,32 @@ const getAnswerKeyForExam = async (exam_id) => {
       throw new Error("Solution not found");
     }
 
-    const answersArray = solutionResult.rows[0].answers; // This should be a JSON array
+    const rawAnswers = solutionResult.rows[0].answers;
+    const normalizedAnswers = normalizeAnswers(rawAnswers);
+    
+    // For backward compatibility, return MCQ answers in the old format
+    const mcqAnswersInOrder = normalizedAnswers.mcq.map((answer) => Object.values(answer)[0]);
 
-    // Extract the answers in order
-    const answersInOrder = answersArray.map((answer) => Object.values(answer)[0]);
-
-    return answersInOrder;
+    return mcqAnswersInOrder;
   } catch (error) {
     console.error("Error getting answer key for exam:", error);
+    throw error;
+  }
+};
+
+const getParsonsAnswerKeyForExam = async (exam_id) => {
+  try {
+    const solutionResult = await pool.query("SELECT answers FROM solution WHERE exam_id = $1", [exam_id]);
+    if (solutionResult.rows.length === 0) {
+      throw new Error("Solution not found");
+    }
+    
+    const rawAnswers = solutionResult.rows[0].answers;
+    const normalizedAnswers = normalizeAnswers(rawAnswers);
+    
+    return normalizedAnswers.parsons;
+  } catch (error) {
+    console.error("Error getting Parsons answer key for exam:", error);
     throw error;
   }
 };
@@ -658,7 +718,16 @@ async function getCustomMarkingSchemes(exam_id) {
 }
 
 async function generateCustomBubbleSheet(req, res) {
-  const { numQuestions, numOptions, courseId, examTitle, classId } = req.body;
+  const { 
+    numQuestions, 
+    numOptions, 
+    courseId, 
+    examTitle, 
+    classId,
+    includeParsonsProblem = false,
+    parsonsPositions = 4,
+    parsonsMaxScore = 10
+  } = req.body;
   const userId = req.auth?.sub; // Get the user ID of the requester
 
   if (!numQuestions || !numOptions || !courseId || !examTitle || !classId) {
@@ -698,12 +767,18 @@ async function generateCustomBubbleSheet(req, res) {
     const { usedCommandTypes, structuredPositions } = calculateQuestionDistribution(numQuestions, numOptions, LAYOUT_PARAMS);
     usedCommandTypes.add('placeQuestionAt'); // Ensure placeQuestionAt command is always included
 
+    // Create Parsons configuration if enabled
+    const parsonsConfig = includeParsonsProblem ? {
+      positions: parsonsPositions,
+      maxScore: parsonsMaxScore
+    } : null;
+
     // Generate LaTeX document
-    const latexDocument = await generateLatexDocument(structuredPositions, usedCommandTypes, courseId, examTitle, classId);
+    const latexDocument = await generateLatexDocument(structuredPositions, usedCommandTypes, courseId, examTitle, classId, parsonsConfig);
     fs.writeFileSync(latexFilePath, latexDocument);
 
     // Generate JSON template and store in cache
-    const jsonTemplate = await generateCustomJsonTemplate(numQuestions, courseId, examTitle, classId, structuredPositions);
+    const jsonTemplate = await generateCustomJsonTemplate(numQuestions, courseId, examTitle, classId, structuredPositions, parsonsConfig);
 
     // Check if the user already has a resource for this exam, if so, override it
     const templateId = getResourceIdForUser(userId, courseId, examTitle, classId);
@@ -780,6 +855,10 @@ const getExamDetails = async (req, res, next) => {
 
     const ExamDetails = examResult.rows[0];
     
+    // Normalize the answers for frontend compatibility
+    const normalizedAnswers = normalizeAnswers(ExamDetails.answers);
+    ExamDetails.answers = normalizedAnswers.mcq; // Frontend expects MCQ answers as array
+    
     const studentResultsQuery = `
     SELECT sr.student_id, s.name as student_name, sr.grade, sr.chosen_answers
     FROM studentResults sr
@@ -847,7 +926,8 @@ const getStudentExams = async (req, res, next) => {
 };
 
 const uploadExam = async (req, res) => {
-  const { examType, numQuestions } = req.params;
+  const { examType } = req.params;
+  const numQ = Number.parseInt(req.params.numQuestions, 10) || 0;
 
   const upload = multer({ dest: "uploads/" }).single("examPages");
 
@@ -855,38 +935,82 @@ const uploadExam = async (req, res) => {
     if (err) {
       return res.status(500).send("Error uploading file.");
     }
-
+    if (!req.file) {
+      return res.status(400).send("No file uploaded.");
+    }
     const { path: tempFilePath } = req.file;
     const exam_id = req.body.exam_id; 
+    console.log("upload exam req body", req.body);
+    // Check if exam has Parsons problems by querying the database
+    let includeParsonsProblem = false;
+    if (exam_id) {
+      try {
+        const parsonsResult = await pool.query(
+          "SELECT answers FROM solution WHERE exam_id = $1", 
+          [exam_id]
+        );
+        
+        if (parsonsResult.rows.length > 0) {
+          const rawAnswers = parsonsResult.rows[0].answers;
+          const normalizedAnswers = normalizeAnswers(rawAnswers);
+          includeParsonsProblem = normalizedAnswers.parsons && normalizedAnswers.parsons.enabled;
+        }
+      } catch (dbError) {
+        console.error("Error checking for Parsons problems:", dbError);
+        // Continue with default value (false)
+      }
+    }
 
+    console.log(`Received file: ${tempFilePath}, exam_id: ${exam_id}, examType: ${examType}, numQ: ${numQ}, includeParsonsProblem: ${includeParsonsProblem}`);
     if (!exam_id) {
-      fs.unlinkSync(tempFilePath); 
+      try {
+        fs.unlinkSync(tempFilePath);
+      } catch (unlinkError) {
+        console.error("Error deleting temp file:", unlinkError);
+      }
       return res.status(400).send("Missing exam_id parameter");
     }
 
+    // Verify file exists before processing
+    if (!fs.existsSync(tempFilePath)) {
+      return res.status(400).send("Uploaded file not found");
+    }
+
+    console.log("File exists:", fs.existsSync(tempFilePath));
+    console.log("File stats:", fs.statSync(tempFilePath));
+
     try {
-      // create FormData object, for sending file
+      const bytes = fs.readFileSync(tempFilePath);
       const formData = new FormData();
-      formData.append('pdf_file', fs.createReadStream(tempFilePath));
+      formData.append('pdf_file', new Blob([bytes], { type: 'application/pdf' }), 'upload.pdf');
       formData.append('exam_id', exam_id);
       
-      // set doubleSide parameter based on exam type
-      const doubleSide = examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq";
+      // Set doubleSide parameter based on exam type and Parsons problems
+      const doubleSide = examType === "200mcq" || 
+                        (examType === "custom" && numQ > 100) || 
+                        (examType === "custom" && includeParsonsProblem);
       formData.append('doubleSide', doubleSide.toString());
-      formData.append('isCustom', examType === "custom");
+      formData.append('isCustom', (examType === "custom").toString());
 
-      // send request to Flask OMR service split_pdf endpoint
+      console.log("Sending request to OMR service...");
+
+      console.log("FormData entries:", formData.get('exam_id'), formData.get('doubleSide'), formData.get('isCustom'));
+      
+      // Send request to Flask OMR service split_pdf endpoint
       const response = await fetch("http://flaskomr:5000/split_pdf", {
         method: "POST",
-        body: formData
+        body: formData,
       });
-      
-      // delete temporary file
+
       fs.unlinkSync(tempFilePath);
+      console.log("Temporary file cleaned up:", tempFilePath);
+      
+      console.log("OMR service response status:", response.status);
       
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`PDF split failed: ${errorData.error || 'Unknown error'}`);
+        const errorData = await response.text();
+        console.error("OMR service error:", errorData);
+        throw new Error(`PDF split failed: ${errorData || 'Unknown error'}`);
       }
       
       const responseData = await response.json();
@@ -897,16 +1021,16 @@ const uploadExam = async (req, res) => {
       
     } catch (error) {
       console.error("Error processing PDF file:", error);
-      // ensure temporary file is deleted
       try {
         if (fs.existsSync(tempFilePath)) {
           fs.unlinkSync(tempFilePath);
+          console.log("Temporary file cleaned up after error:", tempFilePath);
         }
       } catch (unlinkError) {
         console.error("Error deleting temporary file:", unlinkError);
       }
       res.status(500).send(`Error processing PDF file: ${error.message}`);
-    }
+    } 
   });
 };
 
@@ -988,8 +1112,11 @@ const fetchSolutionAnswers = async (req, res , next) => {
       return;
     }
 
-    const answers = answersResult.rows[0].answers;
-    res.json(answers);
+    const rawAnswers = answersResult.rows[0].answers;
+    const normalizedAnswers = normalizeAnswers(rawAnswers);
+    
+    // Return the full normalized structure for frontend use
+    res.json(normalizedAnswers.mcq);
 
   } catch (error) {
     console.error("Error fetching answers:", error);
@@ -1009,12 +1136,13 @@ const fetchSolution = async (req, res, next) => {
       throw new Error("Solution not found");
     }
 
-    const answersArray = solutionResult.rows[0].answers; // This should be a JSON array
+    const rawAnswers = solutionResult.rows[0].answers;
+    const normalizedAnswers = normalizeAnswers(rawAnswers);
+    
+    // For backward compatibility, return MCQ answers in the old format
+    const mcqAnswersInOrder = normalizedAnswers.mcq.map((answer) => Object.values(answer)[0]);
 
-    // Extract the answers in order
-    const answersInOrder = answersArray.map((answer) => Object.values(answer)[0]);
-
-    res.json(answersInOrder);
+    res.json(mcqAnswersInOrder);
   } catch (error) {
     console.error("Error fetching solution:", error);
     res.status(500).json({ message: "Failed to fetch solution" });
@@ -1104,10 +1232,30 @@ const callOMR = async (req, res, next) => {
       return res.status(500).json({ error: `Failed to generate evaluation JSON: ${error.message}` });
     }
 
+    // Get Parsons answer key for potential inclusion
+    let parsonsConfig = null;
+    try {
+      const parsonsAnswerKey = await getParsonsAnswerKeyForExam(examId);
+      if (parsonsAnswerKey && parsonsAnswerKey.enabled) {
+        // Convert answer key array to correct sequence format
+        const correctSequence = parsonsAnswerKey.answerKey.map(item => parseInt(item.itemNumber)).filter(num => !isNaN(num));
+        
+        parsonsConfig = {
+          enabled: true,
+          correct_sequence: correctSequence,
+          max_score: parsonsAnswerKey.maxScore || 10
+        };
+        console.log("Parsons config prepared:", JSON.stringify(parsonsConfig));
+      }
+    } catch (error) {
+      console.log("No Parsons configuration found for exam:", examId);
+    }
+
     // create request body
     const requestBody = {
       templates,
-      evaluation_json
+      evaluation_json,
+      parsons_config: parsonsConfig
     };
 
     console.log("Sending request to OMR service with templates and evaluation_json");
@@ -1155,6 +1303,7 @@ async function getEvaluationJsonForExam(exam_id) {
 
     // get answer key and marking schemes
     const answerKey = await getAnswerKeyForExam(exam_id);
+    const parsonsAnswerKey = await getParsonsAnswerKeyForExam(exam_id);
 
     const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
     console.log("Custom marking schemes:", JSON.stringify(customMarkingSchemes));
@@ -1396,6 +1545,7 @@ module.exports = {
   newExam,
   examBoard,
   getAnswerKeyForExam,
+  getParsonsAnswerKeyForExam,
   getAveragePerExam,
   getAveragePerCourse,
   getStudentGrades,

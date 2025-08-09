@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import "../../css/App.css";
 import { Button } from "../../components/ui/button";
@@ -34,6 +34,11 @@ const NewExam = () => {
   const [numOptions, setNumOptions] = useState(5); // Default to 5 options
   const [loading, setLoading] = useState(false);
   const [templateId, setTemplateId] = useState(null); // Add templateId state
+  const [parsonsConfig, setParsonsConfig] = useState({
+    includeParsonsProblem: false,
+    parsonsPositions: 4,
+    parsonsMaxScore: 10
+  });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -110,6 +115,23 @@ const NewExam = () => {
       setShowAlert(false);
     }
   };
+
+  // Memoized callback functions to prevent infinite re-renders
+  const handleQuestionsChange = useCallback((questions) => {
+    setNumQuestions(questions);
+  }, []);
+
+  const handleOptionsChange = useCallback((options) => {
+    setNumOptions(options);
+  }, []);
+
+  const handleTemplateIdChange = useCallback((id) => {
+    setTemplateId(id);
+  }, []);
+
+  const handleParsonsConfigChange = useCallback((config) => {
+    setParsonsConfig(config);
+  }, []);
 
   return (
     <main className="flex flex-col gap-4 p-2">
@@ -236,9 +258,10 @@ const NewExam = () => {
                     courseId={courseId}
                     examTitle={examTitle}
                     classId={selectedClassId}
-                    onQuestionsChange={(questions) => setNumQuestions(questions)}
-                    onOptionsChange={(options) => setNumOptions(options)}
-                    onTemplateIdChange={(id) => setTemplateId(id)}
+                    onQuestionsChange={handleQuestionsChange}
+                    onOptionsChange={handleOptionsChange}
+                    onTemplateIdChange={handleTemplateIdChange}
+                    onParsonsConfigChange={handleParsonsConfigChange}
                   />
                 )}
               </CardContent>
@@ -268,7 +291,10 @@ const NewExam = () => {
                           template, 
                           numQuestions, 
                           numOptions,
-                          templateId
+                          templateId,
+                          includeParsonsProblem: isCustomTemplate ? parsonsConfig.includeParsonsProblem : false,
+                          parsonsPositions: isCustomTemplate ? parsonsConfig.parsonsPositions : 0,
+                          parsonsMaxScore: isCustomTemplate ? parsonsConfig.parsonsMaxScore : 0
                         }}
                         onClick={handleButtonClick}
                       >

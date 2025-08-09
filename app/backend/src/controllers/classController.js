@@ -1,3 +1,4 @@
+const { PatchCustomDomainsByIdRequestCustomClientIpHeaderEnum } = require("auth0");
 const pool = require("../utils/db"); // Database connection pool
 const axios = require("axios"); // HTTP client for making requests
 const auth0Domain = process.env.AUTH0_DOMAIN; // Auth0 domain from environment variables
@@ -5,6 +6,49 @@ const clientId = process.env.AUTH0_M2M_CLIENT_ID;
 const clientSecret = process.env.AUTH0_M2M_CLIENT_SECRET
 
 const audience = `https://${auth0Domain}/api/v2/`; // Auth0 Management API audience
+
+// Rate limiting utility functions
+const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Rate limiter class for Auth0 API calls
+class Auth0RateLimiter {
+  constructor() {
+    this.lastCall = 0;
+    this.minInterval = 600; // 600ms between calls (slightly under 2 requests per second)
+  }
+
+  async waitForNextCall() {
+    const now = Date.now();
+    const timeSinceLastCall = now - this.lastCall;
+    if (timeSinceLastCall < this.minInterval) {
+      const waitTime = this.minInterval - timeSinceLastCall;
+      await delay(waitTime);
+    }
+    this.lastCall = Date.now();
+  }
+}
+
+const auth0RateLimiter = new Auth0RateLimiter();
+
+// Wrapper function for Auth0 API calls with rate limiting and retry logic
+const makeAuth0Request = async (requestFn, maxRetries = 3) => {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await auth0RateLimiter.waitForNextCall();
+      return await requestFn();
+    } catch (error) {
+      if (error.response?.status === 429) {
+        console.log(`Rate limit hit on attempt ${attempt}. Waiting before retry...`);
+        await delay(Math.pow(2, attempt) * 1000); // Exponential backoff
+        if (attempt === maxRetries) {
+          throw new Error(`Rate limit exceeded after ${maxRetries} attempts`);
+        }
+        continue;
+      }
+      throw error;
+    }
+  }
+};
 
 // Generates a random password with a specified character set
 const generateRandomPassword = () => {
@@ -27,7 +71,7 @@ const getManagementApiAccessToken = async () => {
       client_id: clientId,
       client_secret: clientSecret,
       audience: audience,
-      scope: "create:users read:users", // Scopes required for creating and reading users
+      scope: "create:users read:users update:users read:roles create:role_members",
     }),
   };
 
@@ -111,29 +155,39 @@ const importClass = async (req, res) => {
     return res.status(400).json({ message: "Cannot import more than 500 students at once" });
   }
 
+  const results = {
+    successful: [],
+    failed: [],
+    existing: [],
+  };
+
   try {
     const managementApiToken = await getManagementApiAccessToken();
-    // Check if the Auth0 role 'student' exists
+
+    // get student role with rate limiting
     const getStudentRoleId = async (managementApiToken) => {
-      const response = await axios.get(
-        `https://${auth0Domain}/api/v2/roles`,
-        {
-          headers: {
-            Authorization: `Bearer ${managementApiToken}`,
-          },
-        }
-      );
-      const studentRole = response.data.find(r => r.name === "Student");
-      return studentRole?.id;
+      return await makeAuth0Request(async () => {
+        const response = await axios.get(
+          `https://${auth0Domain}/api/v2/roles`,
+          {
+            headers: {
+              Authorization: `Bearer ${managementApiToken}`,
+            },
+          }
+        );
+        const studentRole = response.data.find(r => r.name === "Student");
+        return studentRole?.id;
+      });
     };
+    
     const studentRoleId = await getStudentRoleId(managementApiToken);
     if (!studentRoleId) {
-      console.error("Error: Auth0 role 'student' not found.");
       return res.status(500).json({
         message: "Auth0 role 'student' not found. Please create it in Auth0 before importing classes.",
       });
     }
 
+    // class creation 
     let classQuery = await pool.query("SELECT class_id FROM classes WHERE course_id = $1 AND instructor_id = $2", [
       courseId,
       instructorId,
@@ -147,94 +201,187 @@ const importClass = async (req, res) => {
       classId = classQuery.rows[0].class_id;
     }
 
-    // Create users in Auth0 and insert them into the database if they don't exist
-    const auth0Promises = students.map(async (student) => {
-      const password = generateRandomPassword(); // Generate a random password
-      const userData = {
-        email: student.studentEmail,
-        password,
-        connection: "Username-Password-Authentication",
-        user_metadata: {
-          studentID: student.studentID,
-          name: student.studentName,
-        },
-      };
-
-      let auth0User;
+    // Process students sequentially to avoid rate limits
+    const processedStudents = [];
+    
+    for (let i = 0; i < students.length; i++) {
+      const student = students[i];
+      console.log(`Processing student ${i + 1}/${students.length}: ${student.studentID}`);
+      
       try {
-        const userResponse = await axios.post(`https://${auth0Domain}/api/v2/users`, userData, {
-          headers: { Authorization: `Bearer ${managementApiToken}` },
-        });
-        auth0User = userResponse.data;
-      } catch (error) {
-        console.error(`Error creating user ${student.studentEmail}:`, error.response.data || error.message);
-        const existingUsersResponse = await axios.get(`https://${auth0Domain}/api/v2/users-by-email`, {
-          params: { email: student.studentEmail },
-          headers: { Authorization: `Bearer ${managementApiToken}` },
-        });
-
-        auth0User = existingUsersResponse.data[0];
-        if (!auth0User) return null;
-      }
-      // Check for roles
-      const rolesResponse = await axios.get(
-        `https://${auth0Domain}/api/v2/users/${auth0User.user_id}/roles`,
-        {
-          headers: { Authorization: `Bearer ${managementApiToken}` },
+        // Validate required fields
+        if (!student.studentID || !student.studentEmail || !student.studentName) {
+          console.error(`Missing required student data: ${JSON.stringify(student)}`);
+          results.failed.push({
+            student: student,
+            error: `Missing required student data`
+          });
+          continue;
         }
-      );
 
-      const userRoles = rolesResponse.data;
+        console.log(`Processing student: ${student.studentID} - ${student.studentName} - ${student.studentEmail}`);
 
-      // If no roles, assign student role
-      if (userRoles.length === 0) {
-        await axios.post(
-          `https://${auth0Domain}/api/v2/users/${auth0User.user_id}/roles`,
-          {
-            roles: [studentRoleId],
+        const password = generateRandomPassword();
+        const userData = {
+          email: student.studentEmail,
+          password,
+          connection: "Username-Password-Authentication",
+          user_metadata: {
+            studentID: student.studentID,
+            name: student.studentName,
           },
-          {
-            headers: { Authorization: `Bearer ${managementApiToken}` },
+        };
+
+        let auth0User;
+        let isNewUser = false;
+
+        // try to create new user in auth0 with rate limiting
+        try {
+          auth0User = await makeAuth0Request(async () => {
+            const userResponse = await axios.post(`https://${auth0Domain}/api/v2/users`, userData, {
+              headers: { Authorization: `Bearer ${managementApiToken}` },
+            });
+            return userResponse.data;
+          });
+          isNewUser = true;
+          console.log(`Created new Auth0 user: ${auth0User.user_id}`);
+        } catch (error) {
+          // if user exists then fetch with rate limiting
+          if (error.response?.status === 409) {
+            auth0User = await makeAuth0Request(async () => {
+              const existingUsersResponse = await axios.get(`https://${auth0Domain}/api/v2/users-by-email`, {
+                params: { email: student.studentEmail },
+                headers: { Authorization: `Bearer ${managementApiToken}` },
+              });
+              return existingUsersResponse.data[0];
+            });
+            
+            if (!auth0User) {
+              throw new Error('User not found in auth0 after failure to create');
+            }
+            console.log(`Found existing Auth0 user: ${auth0User.user_id}`);
+          } else {
+            throw new Error(error.response?.data?.message || error.message);
           }
-        );
-      }
+        }
 
-      const studentQuery = await pool.query("SELECT * FROM student WHERE student_id = $1::text", [student.studentID]);
-      if (studentQuery.rows.length === 0) {
-        await pool.query("INSERT INTO student (student_id, auth0_id, email, name) VALUES ($1, $2, $3, $4)", [
+        // Check for roles with rate limiting
+        const userRoles = await makeAuth0Request(async () => {
+          const rolesResponse = await axios.get(
+            `https://${auth0Domain}/api/v2/users/${auth0User.user_id}/roles`,
+            {
+              headers: { Authorization: `Bearer ${managementApiToken}` },
+            }
+          );
+          return rolesResponse.data;
+        });
+
+        // If no roles, assign student role with rate limiting
+        if (userRoles.length === 0) {
+          await makeAuth0Request(async () => {
+            await axios.post(
+              `https://${auth0Domain}/api/v2/users/${auth0User.user_id}/roles`,
+              {
+                roles: [studentRoleId],
+              },
+              {
+                headers: { Authorization: `Bearer ${managementApiToken}` },
+              }
+            );
+          });
+          console.log(`Assigned student role to user: ${auth0User.user_id}`);
+        }
+
+        // insert/update student in database
+        console.log(`About to insert/update student with ID: ${student.studentID}`);
+        const studentQuery = await pool.query("SELECT * FROM student WHERE student_id = $1::text", [student.studentID]);
+        
+        if (studentQuery.rows.length === 0) {
+          const insertResult = await pool.query("INSERT INTO student (student_id, auth0_id, email, name) VALUES ($1, $2, $3, $4) RETURNING *", [
+            student.studentID,
+            auth0User.user_id,
+            student.studentEmail,
+            student.studentName,
+          ]);
+          console.log(`Inserted new student:`, insertResult.rows[0]);
+        } else {
+          // update existing student if needed
+          const updateResult = await pool.query("UPDATE student SET auth0_id = $1, email = $2, name = $3 WHERE student_id = $4 RETURNING *", [
+            auth0User.user_id,
+            student.studentEmail,
+            student.studentName,
+            student.studentID,
+          ]);
+          console.log(`Updated existing student:`, updateResult.rows[0]);
+        }
+
+        processedStudents.push({ 
+          ...student, 
+          auth0_id: auth0User.user_id,
+          success: true 
+        });
+
+      } catch (error) {
+        console.error(`Error processing student ${student.studentID}:`, error);
+        results.failed.push({
+          student: student,
+          error: error.message
+        });
+      }
+    }
+
+    console.log(`Successfully processed ${processedStudents.length} students out of ${students.length}`);
+
+    // Insert enrollments for successful students
+    for (const student of processedStudents) {
+      try {
+        console.log(`Processing enrollment for student: ${student.studentID}`);
+        
+        if (!student.studentID) {
+          throw new Error(`Student ID is null or undefined for student: ${JSON.stringify(student)}`);
+        }
+        
+        const enrollmentQuery = await pool.query("SELECT * FROM enrollment WHERE class_id = $1 AND student_id = $2", [
+          classId,
           student.studentID,
-          auth0User.user_id,
-          student.studentEmail,
-          student.studentName,
         ]);
+        
+        if (enrollmentQuery.rows.length === 0) {
+          const enrollmentResult = await pool.query("INSERT INTO enrollment (class_id, student_id) VALUES ($1, $2) RETURNING *", [classId, student.studentID]);
+          console.log(`Enrolled student:`, enrollmentResult.rows[0]);
+          results.successful.push(student);
+        } else {
+          console.log(`Student ${student.studentID} already enrolled in class ${classId}`);
+          results.existing.push(student);
+        }
+      } catch (error) {
+        console.error(`Error enrolling student ${student.studentID}:`, error);
+        results.failed.push({
+          student: student,
+          error: `Enrollment failed: ${error.message}`
+        });
       }
+    }
 
-      return { ...student, auth0_id: auth0User.user_id };
+    console.log('Final import results:', {
+      successful: results.successful.length,
+      failed: results.failed.length,
+      existing: results.existing.length
     });
 
-    const auth0Users = await Promise.all(auth0Promises);
-
-    // Filter out unsuccessful Auth0 user creations
-    const successfulUsers = auth0Users.filter((user) => user !== null);
-
-    // Insert enrollments
-    const enrollmentPromises = successfulUsers.map(async (student) => {
-      const enrollmentQuery = await pool.query("SELECT * FROM enrollment WHERE class_id = $1 AND student_id = $2", [
-        classId,
-        student.studentID,
-      ]);
-      if (enrollmentQuery.rows.length === 0) {
-        return pool.query("INSERT INTO enrollment (class_id, student_id) VALUES ($1, $2)", [classId, student.studentID]);
+    res.status(201).json({ 
+      message: "Class import completed", 
+      results: {
+        successful: results.successful.length,
+        failed: results.failed.length,
+        existing: results.existing.length,
+        total: students.length,
+        details: results
       }
-      return null;
     });
-
-    await Promise.all(enrollmentPromises);
-
-    res.status(201).json({ message: "Class imported successfully" });
   } catch (err) {
     console.error("Error importing class:", err);
-    res.status(500).json({ message: "Error importing class" });
+    res.status(500).json({ message: "Error importing class", error: err.message });
   }
 };
 
@@ -383,7 +530,6 @@ const getStudentCourses = async (req, res, next) => {
     next(err);
   }
 };
-
 
 module.exports = {
   displayClasses,

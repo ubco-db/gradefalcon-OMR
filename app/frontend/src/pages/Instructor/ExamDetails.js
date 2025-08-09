@@ -52,9 +52,22 @@ const ExamDetails = () => {
           setError("Failed to fetch exam details.");
         } else {
           setExamData(examResponse.data);
-          setAnswers(examResponse.data.answers || []);
           
+          // Handle both old format (array) and new format (object with mcq/parsons)
+          const rawAnswers = examResponse.data.answers;
+          let processedAnswers = [];
+          
+          if (Array.isArray(rawAnswers)) {
+            // Old format - direct array
+            processedAnswers = rawAnswers;
+          } else if (rawAnswers && typeof rawAnswers === 'object' && rawAnswers.mcq) {
+            // New format - object with mcq property
+            processedAnswers = rawAnswers.mcq || [];
+          }
+          
+          setAnswers(processedAnswers);
           console.log("Exam Data:", examResponse.data);
+          console.log("Processed Answers:", processedAnswers);
         }
       } catch (error) {
         setError("Error fetching exam data");
