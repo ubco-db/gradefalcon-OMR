@@ -51,30 +51,31 @@ const getResourceIdForUser = (userId, courseId, examTitle, classId) => {
 
 /**
  * Helper function to normalize answer data from database
- * Handles both old format (array) and new format (object with mcq/parsons)
- * @param {Object|Array} rawAnswers - Raw answers from database
+ * Handles new array format: [{type: "mcq", questions: [...]}, {type: "parsons", answerKey: [...]}]
+ * @param {Array} rawAnswers - Raw answers from database
  * @returns {Object} - Normalized answer structure { mcq: [], parsons: null }
  */
 const normalizeAnswers = (rawAnswers) => {
-  if (!rawAnswers) {
+  if (!rawAnswers || !Array.isArray(rawAnswers)) {
     return { mcq: [], parsons: null };
   }
   
-  // Handle old format (direct array)
-  if (Array.isArray(rawAnswers)) {
-    return { mcq: rawAnswers, parsons: null };
-  }
+  const normalized = { mcq: [], parsons: null };
   
-  // Handle new format (object with mcq and parsons)
-  if (typeof rawAnswers === 'object' && rawAnswers.mcq !== undefined) {
-    return {
-      mcq: rawAnswers.mcq || [],
-      parsons: rawAnswers.parsons || null
-    };
-  }
+  // Process array format
+  rawAnswers.forEach(section => {
+    if (section.type === 'mcq') {
+      normalized.mcq = section.questions || [];
+    } else if (section.type === 'parsons') {
+      normalized.parsons = {
+        answerKey: section.answerKey || [],
+        maxScore: section.maxScore || 10,
+        enabled: section.enabled || false
+      };
+    }
+  });
   
-  // Fallback
-  return { mcq: [], parsons: null };
+  return normalized;
 };
 
 /**
@@ -244,15 +245,26 @@ const saveQuestions = async (req, res, next) => {
 
     const insertedRowId = writeToExam.rows[0].exam_id;
 
-    // Prepare answer data including Parsons if applicable
-    const answerData = {
-      mcq: questions || [],
-      parsons: includeParsonsProblem ? {
+    // Prepare answer data including Parsons if applicable - using array format
+    const answerData = [];
+    
+    // Add MCQ answers to array
+    if (questions && questions.length > 0) {
+      answerData.push({
+        type: "mcq",
+        questions: questions
+      });
+    }
+    
+    // Add Parsons data to array if applicable
+    if (includeParsonsProblem) {
+      answerData.push({
+        type: "parsons",
         answerKey: parsonsAnswerKey || [],
         maxScore: parsonsMaxScore || 10,
         enabled: true
-      } : null
-    };
+      });
+    }
 
     const writeToSolution = await pool.query(
       "INSERT INTO solution (exam_id, answers, marking_schemes, single_choice_only) VALUES ($1, $2, $3, $4)",
@@ -593,10 +605,19 @@ const fetchStudentScores = async (req, res) =>  {
     // Fetch image UUIDs for each student from the database
     const resultsWithNamesAndImages = await Promise.all(
       studentScores.map(async (result) => {
-        let questionFields = Object.keys(result.chosen_answers)
-        .filter((key) => key.startsWith("q") && result.chosen_answers[key].trim() !== "")
-        .map((key) => ({ [key]: result.chosen_answers[key] }));
-        result.chosen_answers = questionFields;
+        // Filter out empty MCQ answers while keeping Parsons structure intact
+        if (result.chosen_answers && result.chosen_answers.mcq) {
+          // Filter MCQ answers to remove empty ones
+          let filteredMcqFields = Object.keys(result.chosen_answers.mcq)
+            .filter((key) => key.startsWith("q") && result.chosen_answers.mcq[key].trim() !== "")
+            .map((key) => ({ [key]: result.chosen_answers.mcq[key] }));
+          
+          // Update the structure with filtered MCQ and keep Parsons as is
+          result.chosen_answers = {
+            mcq: filteredMcqFields,
+            parsons: result.chosen_answers.parsons
+          };
+        }
         // get student name
         const studentName = await getStudentNameById(result.StudentID);
 
@@ -873,18 +894,22 @@ const getExamDetails = async (req, res, next) => {
     const questionStats = {};
     studentResultsResult.rows.forEach(result => {
       const chosenAnswers = result.chosen_answers;
-      chosenAnswers.forEach(answer => {
-        const question = Object.keys(answer)[0];
-        const response = answer[question];
-        
-        if (!questionStats[question]) {
-          questionStats[question] = {};
-        }
-        if (!questionStats[question][response]) {
-          questionStats[question][response] = 0;
-        }
-        questionStats[question][response] += 1;
-      });
+      
+      // Handle new structured format: {mcq: [...], parsons: {...}}
+      if (chosenAnswers && chosenAnswers.mcq && Array.isArray(chosenAnswers.mcq)) {
+        chosenAnswers.mcq.forEach(answer => {
+          const question = Object.keys(answer)[0];
+          const response = answer[question];
+          
+          if (!questionStats[question]) {
+            questionStats[question] = {};
+          }
+          if (!questionStats[question][response]) {
+            questionStats[question][response] = 0;
+          }
+          questionStats[question][response] += 1;
+        });
+      }
     });
 
     const totalStudents = studentResultsResult.rows.length;
@@ -1071,7 +1096,28 @@ const getStudentAttempt = async (req, res, next) => {
     `,
       [studentId, examId]
     );
-    res.json({ exam: exam.rows[0] });
+    
+    if (exam.rows.length > 0) {
+      const examData = exam.rows[0];
+      
+      // Check if this exam has Parsons problems and add correct answer
+      if (examData.chosen_answers && examData.chosen_answers.parsons) {
+        try {
+          const parsonsAnswerKey = await getParsonsAnswerKeyForExam(examId);
+          if (parsonsAnswerKey && parsonsAnswerKey.answerKey) {
+            // Add correct sequence to the student's Parsons data
+            examData.chosen_answers.parsons.correctSequence = parsonsAnswerKey.answerKey;
+          }
+        } catch (error) {
+          console.error("Error fetching Parsons answer key:", error);
+          // Continue without correct sequence
+        }
+      }
+      
+      res.json({ exam: examData });
+    } else {
+      res.json({ exam: null });
+    }
   } catch (err) {
     console.error("Error fetching student exams:", err);
     next(err);

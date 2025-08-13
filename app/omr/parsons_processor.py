@@ -13,43 +13,46 @@ def process_parsons_answers(result_row):
     """
     Process Parsons problem answers from OMR results.
     Expected format: pos1, pos2, pos3, etc. with multiple digits (e.g., "15" for bubbles 1 and 5)
-    Returns ordered sequence based on filled positions
+    Returns ordered sequence based on filled positions, including None for empty positions
     
     Args:
         result_row (dict): OMR result row containing position data
         
     Returns:
-        list: Ordered sequence of item numbers, or None if no valid data
+        list: Ordered sequence of item numbers (may include None for empty positions), or None if no valid data
     """
     parsons_positions = {}
+    max_position = 0
     
     # Look for position fields (pos1, pos2, pos3, etc.)
     for key, value in result_row.items():
-        if key.startswith('pos') and value.strip():
+        if key.startswith('pos'):
             try:
                 position_num = int(key[3:])  # Extract position number (pos1 -> 1)
-                digits_string = value.strip()
+                max_position = max(max_position, position_num)
                 
-                # Handle multiple digits in the same field (e.g., "15" means bubbles 1 and 5 were filled)
-                if digits_string:
+                if value and value.strip():
+                    digits_string = value.strip()
                     # Convert string of digits to integer
                     # For "15", this becomes integer 15
                     # For "3", this becomes integer 3
                     item_number = int(digits_string)
                     parsons_positions[position_num] = item_number
+                else:
+                    # Empty position - store as None
+                    parsons_positions[position_num] = None
                     
             except (ValueError, IndexError):
                 logger.warning(f"Invalid Parsons position format: {key}={value}")
                 continue
     
-    if not parsons_positions:
+    if max_position == 0:
         return None
         
-    # Convert positions to ordered sequence
-    # Sort by position number and extract the item numbers
+    # Convert positions to ordered sequence, including empty positions
     ordered_sequence = []
-    for pos in sorted(parsons_positions.keys()):
-        ordered_sequence.append(parsons_positions[pos])
+    for pos in range(1, max_position + 1):
+        ordered_sequence.append(parsons_positions.get(pos, None))
         
     logger.info(f"Processed Parsons sequence: {ordered_sequence}")
     return ordered_sequence
@@ -100,11 +103,12 @@ def calculate_edit_distance(sequence1, sequence2):
 def score_parsons_problem(student_sequence, correct_sequence, max_score=10):
     """
     Score a Parsons problem using edit distance.
+    Filters out None values before scoring - only compares filled positions.
     Returns partial credit based on how close the student's answer is to correct.
     
     Args:
-        student_sequence (list): Student's ordered sequence
-        correct_sequence (list): Correct ordered sequence
+        student_sequence (list): Student's ordered sequence (may contain None for empty positions)
+        correct_sequence (list): Correct ordered sequence (should not contain None)
         max_score (int): Maximum possible score
         
     Returns:
@@ -113,8 +117,14 @@ def score_parsons_problem(student_sequence, correct_sequence, max_score=10):
     if not student_sequence or not correct_sequence:
         return 0
     
-    edit_dist = calculate_edit_distance(student_sequence, correct_sequence)
-    max_possible_distance = max(len(student_sequence), len(correct_sequence))
+    # Filter out None values from student sequence
+    filtered_student = [x for x in student_sequence if x is not None]
+    
+    if not filtered_student:
+        return 0  # Student didn't fill any positions
+    
+    edit_dist = calculate_edit_distance(filtered_student, correct_sequence)
+    max_possible_distance = max(len(filtered_student), len(correct_sequence))
     
     # Perfect match gets full score
     if edit_dist == 0:
@@ -124,8 +134,8 @@ def score_parsons_problem(student_sequence, correct_sequence, max_score=10):
     # Minimum score is 0, maximum is max_score
     score = max(0, max_score * (1 - edit_dist / max_possible_distance))
     
-    logger.info(f"Parsons scoring - Student: {student_sequence}, Correct: {correct_sequence}, "
-               f"Edit distance: {edit_dist}, Score: {score:.2f}/{max_score}")
+    logger.info(f"Parsons scoring - Student: {filtered_student} (filtered from {student_sequence}), "
+               f"Correct: {correct_sequence}, Edit distance: {edit_dist}, Score: {score:.2f}/{max_score}")
     
     return round(score, 2)
 

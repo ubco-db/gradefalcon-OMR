@@ -346,7 +346,7 @@ router.post("/fetchSolution/:exam_id", checkJwt, checkPermissions(["read:exam_st
 router.post('/fetchSolutionAnswers/:exam_id', checkJwt, checkPermissions(["read:exam_student"]), fetchSolutionAnswers);
 
 router.post("/changeGrade", checkJwt, checkPermissions(["update:grades"]), changeGrade);
-
+router.post("/fetchChangelog", checkJwt, checkPermissions(["read:grades"]), getGradeChangeLog);
 
 //test routes
 router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {

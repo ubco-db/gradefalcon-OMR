@@ -251,8 +251,10 @@ const ViewExam = () => {
   };
 
   const handleSave = async () => {
-    if (editableGrade < 0 || editableGrade > total_marks) {
-      setError(`Grade must be between 0 and ${total_marks}`);
+    const numericGrade = parseFloat(editableGrade);
+    
+    if (isNaN(numericGrade) || numericGrade < 0 || numericGrade > total_marks) {
+      setError(`Grade must be a valid number between 0 and ${total_marks}`);
       return;
     }
 
@@ -263,12 +265,12 @@ const ViewExam = () => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ student_id: student_id, exam_id: exam_id, grade: editableGrade }),
+      body: JSON.stringify({ student_id: student_id, exam_id: exam_id, grade: numericGrade }),
     });
     const data = await response.json();
     console.log("Data:", data);
-    console.log("Saved grade:", editableGrade);
-    setDisplayGrade(editableGrade);
+    console.log("Saved grade:", numericGrade);
+    setDisplayGrade(numericGrade);
 
     fetchChangelog();
   };

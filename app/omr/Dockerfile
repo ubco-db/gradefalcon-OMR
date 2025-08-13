@@ -12,8 +12,8 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 RUN apt-get update -y && \
     apt-get install -y build-essential cmake unzip pkg-config libzbar0\
     libjpeg-dev libpng-dev libtiff-dev \
-    libavcodec-dev libavformat-dev libswscale-dev libv4l-dev \
-    libatlas-base-dev gfortran && \
+    libavcodec-dev libavformat-dev libswscale-dev libv4l-dev && \
+    # libatlas-base-dev gfortran && \
     apt-get install -y poppler-utils && \ 
     apt-get install -y libssl-dev && \
     apt-get clean && \

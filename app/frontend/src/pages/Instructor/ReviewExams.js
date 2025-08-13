@@ -58,7 +58,8 @@ const ReviewExams = () => {
     }
   };
 
-  // Fetch student scores for the exam
+  // Fetch student scores for the exam DIRECTLY from omr, 
+  // for when  reveiwing the exam
   const fetchStudentScores = async () => {
     const token = await getAccessTokenSilently();
     const response = await fetch(`/api/exam/studentScores`, {

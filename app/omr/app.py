@@ -411,7 +411,10 @@ def process_results_and_store_images(exam_id, single_choice_only=True, parsons_c
                     "results": front_results_uuid
                 }
             },
-            "chosen_answers": {}
+            "chosen_answers": {
+                "mcq": {},
+                "parsons": None
+            }
         }
         
         # Initialize multiple answers tracking if single_choice_only is enabled
@@ -421,43 +424,18 @@ def process_results_and_store_images(exam_id, single_choice_only=True, parsons_c
         # Add page_1 answers
         for key, value in p1_row.items():
             if key.startswith('q') and value.strip():
-                student_result["chosen_answers"][key] = value
+                student_result["chosen_answers"]["mcq"][key] = value
                 
                 # Check for multiple answers if single_choice_only is enabled
                 if single_choice_only and len(value.strip()) > 1:
                     student_result["has_multiple_answers"].append(key)
         
-        # Process Parsons problem answers from both pages (but primarily page 2)
-        # Check page 1 first (in case Parsons data is there)
-        parsons_answers = process_parsons_answers(p1_row)
-        app.logger.debug(f"Parsons answers from page 1 for student {student_id}: {parsons_answers}")
+        # Exam Type Logic:
+        # 1. Single page: MCQ only
+        # 2. Two pages + parsons_config: Page 1 = MCQ, Page 2 = Parsons  
+        # 3. Two pages + no parsons_config: Page 1 & 2 = MCQ questions
         
-        if parsons_answers and parsons_config:
-            student_result["parsons_sequence"] = parsons_answers
-            
-            # Calculate Parsons score using edit distance
-            correct_sequence = parsons_config.get('correct_sequence', [])
-            max_score = parsons_config.get('max_score', 10)
-            
-            if correct_sequence:
-                parsons_score = score_parsons_problem(
-                    parsons_answers, 
-                    correct_sequence, 
-                    max_score
-                )
-                student_result["parsons_score"] = parsons_score
-                
-                # Add to total score if applicable
-                try:
-                    current_score = float(student_result["Score"]) if student_result["Score"] else 0
-                    total_score = current_score + parsons_score
-                    student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
-                except (ValueError, TypeError) as e:
-                    app.logger.error(f"Error adding Parsons score to total: {e}")
-                    
-        elif parsons_answers:
-            # Store sequence even without scoring configuration
-            student_result["parsons_sequence"] = parsons_answers
+        has_parsons_exam = parsons_config is not None
         
         # If page_2 data exists, find matching row
         if has_page2 and page2_results:
@@ -498,34 +476,73 @@ def process_results_and_store_images(exam_id, single_choice_only=True, parsons_c
                     "results": back_results_uuid
                 }
                 
-                # Calculate total score
-                try:
-                    p1_score = float(student_result["Score"]) if student_result["Score"] else 0
-                    p2_score = float(matching_p2_row.get("score", "0")) if matching_p2_row.get("score") else 0
+                if has_parsons_exam:
+                    # Case: Parsons exam - Page 2 contains Parsons problem
+                    parsons_answers = process_parsons_answers(matching_p2_row)
+                    app.logger.debug(f"Parsons answers from page 2 for student {student_id}: {parsons_answers}")
                     
-                    total_score = p1_score + p2_score
-                    student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
-                except (ValueError, TypeError) as e:
-                    app.logger.error(f"Error calculating total score: {e}")
-                
-                # Add page_2 answers
-                for key, value in matching_p2_row.items():
-                    if key.startswith('q') and value.strip():
-                        if key in student_result["chosen_answers"]:
-                            # This is a duplicate question on page 2, rename to page2_q*
-                            new_key = f"page2_{key}"
-                            student_result["chosen_answers"][new_key] = value
+                    if parsons_answers:
+                        # Calculate Parsons score using edit distance
+                        correct_sequence = parsons_config.get('correct_sequence', [])
+                        max_score = parsons_config.get('max_score', 10)
+                        
+                        parsons_score = 0
+                        if correct_sequence:
+                            parsons_score = score_parsons_problem(
+                                parsons_answers, 
+                                correct_sequence, 
+                                max_score
+                            )
                             
-                            # Check for multiple answers in page 2 duplicate questions
-                            if single_choice_only and len(value.strip()) > 1:
-                                student_result["has_multiple_answers"].append(new_key)
-                        else:
-                            # This is a new question
-                            student_result["chosen_answers"][key] = value
-                            
-                            # Check for multiple answers in page 2 new questions
-                            if single_choice_only and len(value.strip()) > 1:
-                                student_result["has_multiple_answers"].append(key)
+                            # Add Parsons score to total
+                            try:
+                                current_score = float(student_result["Score"]) if student_result["Score"] else 0
+                                total_score = current_score + parsons_score
+                                student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
+                            except (ValueError, TypeError) as e:
+                                app.logger.error(f"Error adding Parsons score to total: {e}")
+                        
+                        # Store Parsons data in structured format (without correct sequence)
+                        student_result["chosen_answers"]["parsons"] = {
+                            "sequence": parsons_answers,
+                            "score": parsons_score,
+                            "maxScore": max_score
+                        }
+                    else:
+                        # No Parsons answers found but exam expects them
+                        student_result["chosen_answers"]["parsons"] = {
+                            "sequence": []
+                        }
+                else:
+                    # Case: Two-page MCQ exam - Page 2 contains additional MCQ questions
+                    # Calculate total MCQ score from both pages
+                    try:
+                        p1_score = float(student_result["Score"]) if student_result["Score"] else 0
+                        p2_score = float(matching_p2_row.get("score", "0")) if matching_p2_row.get("score") else 0
+                        
+                        total_score = p1_score + p2_score
+                        student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
+                    except (ValueError, TypeError) as e:
+                        app.logger.error(f"Error calculating total MCQ score: {e}")
+                    
+                    # Add page_2 MCQ answers
+                    for key, value in matching_p2_row.items():
+                        if key.startswith('q') and value.strip():
+                            if key in student_result["chosen_answers"]["mcq"]:
+                                # Duplicate question on page 2, rename with page2_ prefix
+                                new_key = f"page2_{key}"
+                                student_result["chosen_answers"]["mcq"][new_key] = value
+                                
+                                # Check for multiple answers in page 2 duplicate questions
+                                if single_choice_only and len(value.strip()) > 1:
+                                    student_result["has_multiple_answers"].append(new_key)
+                            else:
+                                # New question from page 2
+                                student_result["chosen_answers"]["mcq"][key] = value
+                                
+                                # Check for multiple answers in page 2 new questions
+                                if single_choice_only and len(value.strip()) > 1:
+                                    student_result["has_multiple_answers"].append(key)
         
         # Clean up has_multiple_answers if empty
         if single_choice_only and not student_result["has_multiple_answers"]:

@@ -94,7 +94,7 @@ CREATE TABLE exam (
 CREATE TABLE solution (
     solution_id serial primary key,
     exam_id int not null,
-    answers JSONB,
+    answers JSONB, -- Format: [{type: "mcq", questions: [{q1: "A"}, {q2: "B"}]}, {type: "parsons", answerKey: [1,2,3], maxScore: 10, enabled: true}]
     filepath text,
     marking_schemes JSONB,
     single_choice_only boolean default true,
@@ -113,9 +113,9 @@ CREATE TABLE studentResults(
     sheet_int serial primary key,
     student_id text not null,
     exam_id int not null,
-    chosen_answers JSONB,
+    chosen_answers JSONB, -- Format: {mcq: [{q1: "A"}, {q2: "B"}], parsons: {sequence: [1,2,3], score: 8.5, maxScore: 10}}
     initial_chosen_answers JSONB, -- This field will store the initial record chosen answers as scanned
-    grade int,
+    grade DECIMAL(5,2),
     grade_changelog text[],
     image_uuids JSONB DEFAULT '{}', -- Store UUIDs in format {page1: {original: uuid, results: uuid}, page2: {original: uuid, results: uuid}}
     foreign key (exam_id) references exam(exam_id),
