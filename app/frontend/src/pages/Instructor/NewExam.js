@@ -17,10 +17,12 @@ import { RadioGroup, RadioGroupItem } from "../../components/ui/radio-group";
 import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
 import { ChevronRightIcon, ChevronLeftIcon, ExclamationCircleIcon } from "@heroicons/react/20/solid";
 import { useAuth0 } from "@auth0/auth0-react";
+import { useToast } from "../../components/ui/use-toast";
 import CustomBubbleSheet from "../../components/CustomBubbleSheet";  // Importing the CustomBubbleSheet component
 
 const NewExam = () => {
   const { getAccessTokenSilently } = useAuth0();
+  const { toast } = useToast();
   const [examTitle, setExamTitle] = useState("");
   const [courseId, setCourseId] = useState("");
   const [selectedClassId, setSelectedClassId] = useState(""); 
@@ -99,7 +101,19 @@ const NewExam = () => {
 
   const handleNext = () => {
     if (currentTab === "details") setCurrentTab("template");
-    if (currentTab === "template") setCurrentTab("upload");
+    if (currentTab === "template") {
+      // For custom template, ensure templateId exists before proceeding
+      if (isCustomTemplate && !templateId) {
+        toast({
+          title: "Download Required",
+          description: "Please generate and download the custom bubble sheet before proceeding.",
+          variant: "destructive",
+          duration: 3000
+        });
+        return;
+      }
+      setCurrentTab("upload");
+    }
   };
 
   const handleBack = () => {

@@ -11,7 +11,6 @@ import {
 } from "../../components/ui/card";
 import { Switch } from "../../components/ui/switch"; // Importing the Shadcn UI Switch component
 import { useToast } from "../../components/ui/use-toast"; // Importing the useToast hook
-import { Toaster } from "../../components/ui/toaster"; // Importing the Toaster component
 import { useAuth0 } from "@auth0/auth0-react"; // Import Auth0
 
 const ExamControls = () => {
