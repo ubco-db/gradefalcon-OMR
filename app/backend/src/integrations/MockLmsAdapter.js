@@ -264,6 +264,50 @@ class MockLmsAdapter extends LMSAdapter {
     };
   }
 
+  async getStudents(courseId) {
+    await this._simulateDelay();
+    
+    // Mock student data for the given course
+    const mockStudents = {
+      123456: [
+        {
+          lms_user_id: 'student_001',
+          student_id: 'S12345678',
+          name: 'Alice Johnson',
+          email: 'alice.johnson@student.ubc.ca'
+        },
+        {
+          lms_user_id: 'student_002', 
+          student_id: 'S87654321',
+          name: 'Bob Smith',
+          email: 'bob.smith@student.ubc.ca'
+        },
+        {
+          lms_user_id: 'student_003',
+          student_id: 'S11223344',
+          name: 'Carol Davis',
+          email: 'carol.davis@student.ubc.ca'
+        }
+      ],
+      789012: [
+        {
+          lms_user_id: 'student_004',
+          student_id: 'S44332211',
+          name: 'David Wilson',
+          email: 'david.wilson@student.ubc.ca'
+        },
+        {
+          lms_user_id: 'student_005',
+          student_id: 'S55667788',
+          name: 'Emma Brown',
+          email: 'emma.brown@student.ubc.ca'
+        }
+      ]
+    };
+
+    return mockStudents[courseId] || [];
+  }
+
 }
 
 module.exports = MockLmsAdapter;
