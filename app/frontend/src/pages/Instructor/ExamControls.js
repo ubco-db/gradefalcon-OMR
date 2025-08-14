@@ -24,6 +24,8 @@ const ExamControls = () => {
     questions,
     numQuestions,
     totalMarks,
+    mcqTotalMarks,
+    parsonsTotalMarks,
     examMaxAppeals,
     template,
     markingSchemes = [],
@@ -52,6 +54,8 @@ const ExamControls = () => {
       questions,
       numQuestions,
       totalMarks,
+      mcqTotalMarks,
+      parsonsTotalMarks,
       examMaxAppeals,
       markingSchemes,
       template,
@@ -77,6 +81,8 @@ const ExamControls = () => {
           questions: questions,
           numQuestions: numQuestions,
           totalMarks: totalMarks,
+          mcqTotalMarks: mcqTotalMarks,
+          parsonsTotalMarks: parsonsTotalMarks,
           examMaxAppeals: examMaxAppeals,
           markingSchemes: markingSchemes,
           template: template,
@@ -106,10 +112,21 @@ const ExamControls = () => {
         setLoading(false);
         navigate("/dashboard", { state: { success: true, message: "Exam created successfully!" } });
       } else {
-        console.error("Failed to save questions and marking schemes");
+        // Try to get the error message from the response
+        let errorMessage = "Failed to save questions and marking schemes.";
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (e) {
+          // If we can't parse the error response, use the default message
+        }
+        
+        console.error("Failed to save questions and marking schemes:", errorMessage);
         toast({
           title: "Error",
-          description: "Failed to save questions and marking schemes.",
+          description: errorMessage,
           type: "error",
         });
         setLoading(false);

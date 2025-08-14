@@ -44,6 +44,8 @@ const ManualExamKey = () => {
   console.log("ManualExamKey received Parsons config:", { includeParsonsProblem, parsonsPositions, parsonsMaxScore });
   const [numQuestions, setNumQuestions] = useState(initialNumQuestions || 10);
   const [numOptions, setNumOptions] = useState(5);
+  const [mcqTotalMarks, setMcqTotalMarks] = useState();
+  const [parsonsTotalMarks, setParsonsTotalMarks] = useState(10); // Default 10 marks, can be manually adjusted
   const [totalMarks, setTotalMarks] = useState();
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
@@ -61,10 +63,30 @@ const ManualExamKey = () => {
   const [parsonsAnswerKey, setParsonsAnswerKey] = useState([]);
   const parsonsInitializedRef = useRef(false);
 
-  const frameworks = Array.from({ length: numQuestions }, (_, j) => ({
-    value: `Question ${j + 1}`,
-    label: `Q${j + 1}`,
-  }));
+  // Get questions that are already used in existing marking schemes
+  const getUsedQuestions = () => {
+    const usedQuestions = new Set();
+    markingSchemes.forEach(scheme => {
+      scheme.questions.forEach(question => {
+        // Convert from 'q1' format to 'Question 1' format
+        const questionNumber = question.replace('q', '');
+        usedQuestions.add(`Question ${questionNumber}`);
+      });
+    });
+    return usedQuestions;
+  };
+
+  // Generate available frameworks (exclude already used questions)
+  const frameworks = Array.from({ length: numQuestions }, (_, j) => {
+    const questionValue = `Question ${j + 1}`;
+    const usedQuestions = getUsedQuestions();
+    
+    return {
+      value: questionValue,
+      label: `Q${j + 1}`,
+      disabled: usedQuestions.has(questionValue), // Disable if already used
+    };
+  }).filter(option => !option.disabled); // Only show available questions
 
   const removeQuestion = (questionNumber, option) => {
     setSelectedOptions((prevOptions) =>
@@ -145,10 +167,42 @@ const ManualExamKey = () => {
     }
   }, [numQuestions, numOptions, selectedOptions]);
 
+  // Calculate MCQ total marks from custom marking schemes
+  const calculateMcqTotalFromSchemes = () => {
+    if (markingSchemes.length === 0) {
+      return numQuestions; // Default: 1 mark per question
+    }
+    
+    let totalFromSchemes = 0;
+    const questionsInSchemes = new Set();
+    
+    // Add marks from custom schemes
+    markingSchemes.forEach(scheme => {
+      scheme.questions.forEach(question => {
+        questionsInSchemes.add(question);
+        totalFromSchemes += scheme.correct; // Use the 'correct' value as the max marks for this question
+      });
+    });
+    
+    // Add default marks (1 mark each) for questions not in any custom scheme
+    const questionsInCustomSchemes = questionsInSchemes.size;
+    const questionsWithDefaultMarking = numQuestions - questionsInCustomSchemes;
+    totalFromSchemes += questionsWithDefaultMarking * 1; // 1 mark per default question
+    
+    return totalFromSchemes;
+  };
+
   useEffect(() => {
-    setTotalMarks(numQuestions);
+    // Auto-calculate and prefill MCQ total marks based on marking schemes
+    const calculatedMcqMarks = calculateMcqTotalFromSchemes();
+    setMcqTotalMarks(calculatedMcqMarks);
+    
+    // Auto-calculate and prefill overall total marks
+    const calculatedTotal = calculatedMcqMarks + (includeParsonsProblem ? parsonsTotalMarks : 0);
+    setTotalMarks(calculatedTotal);
+    
     updateQuestions();
-  }, [numQuestions, numOptions, updateQuestions]);
+  }, [numQuestions, numOptions, updateQuestions, includeParsonsProblem, parsonsTotalMarks, markingSchemes]);
 
   // Separate useEffect for Parsons initialization to avoid dependency issues
   useEffect(() => {
@@ -164,9 +218,13 @@ const ManualExamKey = () => {
   }, [includeParsonsProblem, parsonsPositions, parsonsAnswerKey.length]);
 
   const handleSelectChange = (values) => {
+    // Additional validation to ensure no used questions are selected
+    const usedQuestions = getUsedQuestions();
+    const validValues = values.filter(value => !usedQuestions.has(value));
+    
     setCustomScheme((prev) => ({
       ...prev,
-      questions: values,
+      questions: validValues,
     }));
   };
 
@@ -178,9 +236,19 @@ const ManualExamKey = () => {
     if (customScheme.questions.length === 0) {
       setShowAlert(true);
       return;
-    } else {
-      setShowAlert(false);
     }
+    
+    // Check for duplicate questions across existing schemes
+    const usedQuestions = getUsedQuestions();
+    const duplicateQuestions = customScheme.questions.filter(question => usedQuestions.has(question));
+    
+    if (duplicateQuestions.length > 0) {
+      // This shouldn't happen with our filtering, but just in case
+      alert(`Questions ${duplicateQuestions.join(', ')} are already used in other marking schemes.`);
+      return;
+    }
+    
+    setShowAlert(false);
 
     const formattedQuestions = customScheme.questions.map((q) => `q${q.split(" ")[1]}`);
 
@@ -374,12 +442,14 @@ const ManualExamKey = () => {
           questions: selectedOptions,
           numQuestions: numQuestions,
           totalMarks: totalMarks,
+          mcqTotalMarks: mcqTotalMarks,
+          parsonsTotalMarks: parsonsTotalMarks,
           markingSchemes: markingSchemes,
           template: template,
           templateId: templateId,
           parsonsAnswerKey: includeParsonsProblem ? parsonsAnswerKey : null,
           includeParsonsProblem: includeParsonsProblem,
-          parsonsMaxScore: parsonsMaxScore,
+          parsonsMaxScore: parsonsTotalMarks, // Use the manually set total marks
         }}
         onClick={() => {
           console.log("Navigating to ExamControls with Parsons answer key:", parsonsAnswerKey);
@@ -497,16 +567,61 @@ const ManualExamKey = () => {
               Add Custom Marking Scheme
             </Button>
           </CardFooter>
-          <div className="mt-4"> 
-          <Label>
-            Total Marks
-          </Label>
-          <Input
-            type="number"
-            value={totalMarks}
-            className = "w-15"
-            onChange={(e) => setTotalMarks(e.target.value)}
-          />
+          <div className="mt-4 space-y-4"> 
+          <div>
+            <Label>
+              MCQ Total Marks
+              <span className="text-xs text-gray-500 ml-2">
+                (Calculated: {calculateMcqTotalFromSchemes()})
+              </span>
+            </Label>
+            <Input
+              type="number"
+              value={mcqTotalMarks}
+              className="w-20"
+              onChange={(e) => {
+                const newMcqMarks = parseInt(e.target.value) || 0;
+                setMcqTotalMarks(newMcqMarks);
+                setTotalMarks(newMcqMarks + (includeParsonsProblem ? parsonsTotalMarks : 0));
+              }}
+              title={`Auto-calculated based on marking schemes: ${calculateMcqTotalFromSchemes()}`}
+            />
+          </div>
+          {includeParsonsProblem && (
+            <div>
+              <Label>
+                Parsons Problem Total Marks
+              </Label>
+              <Input
+                type="number"
+                value={parsonsTotalMarks}
+                className="w-20"
+                onChange={(e) => {
+                  const newParsonsMarks = parseInt(e.target.value) || 0;
+                  setParsonsTotalMarks(newParsonsMarks);
+                  setTotalMarks(mcqTotalMarks + newParsonsMarks);
+                }}
+              />
+            </div>
+          )}
+          <div>
+            <Label>
+              Overall Total Marks
+              <span className="text-xs text-gray-500 ml-2">
+                (Calculated: {mcqTotalMarks + (includeParsonsProblem ? parsonsTotalMarks : 0)})
+              </span>
+            </Label>
+            <Input
+              type="number"
+              value={totalMarks}
+              className="w-20"
+              onChange={(e) => {
+                const newTotal = parseInt(e.target.value) || 0;
+                setTotalMarks(newTotal);
+              }}
+              title={`Auto-calculated: ${mcqTotalMarks + (includeParsonsProblem ? parsonsTotalMarks : 0)}`}
+            />
+          </div>
         </div>
         </Card>
       </div>

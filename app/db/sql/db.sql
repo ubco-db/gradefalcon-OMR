@@ -77,6 +77,8 @@ CREATE TABLE exam (
     exam_title text, 
     total_questions int,
     total_marks int,
+    mcq_total_marks int,
+    parsons_total_marks int,
     template text,
     template_file JSONB,
     mean double precision,

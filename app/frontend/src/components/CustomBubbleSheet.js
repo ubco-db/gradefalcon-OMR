@@ -14,7 +14,6 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
   const [numOptions, setNumOptions] = useState(4);
   const [includeParsonsProblem, setIncludeParsonsProblem] = useState(false);
   const [parsonsPositions, setParsonsPositions] = useState(4);
-  const [parsonsMaxScore, setParsonsMaxScore] = useState(10);
 
   useEffect(() => {
     // Pass the numQuestions back to the parent component whenever it changes
@@ -35,11 +34,10 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
     if (onParsonsConfigChange) {
       onParsonsConfigChange({
         includeParsonsProblem,
-        parsonsPositions,
-        parsonsMaxScore
+        parsonsPositions
       });
     }
-  }, [includeParsonsProblem, parsonsPositions, parsonsMaxScore]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [includeParsonsProblem, parsonsPositions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleGeneratePDF = async () => {
     try {
@@ -57,8 +55,7 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
           numQuestions, 
           numOptions,
           includeParsonsProblem,
-          parsonsPositions,
-          parsonsMaxScore
+          parsonsPositions
         }),
       });
 
@@ -157,23 +154,6 @@ const CustomBubbleSheet = ({ courseId, classId, examTitle, onQuestionsChange, on
                     </p>
                   </div>
                   
-                  <div>
-                    <Label htmlFor="parsons-max-score" className="block text-sm font-medium text-gray-700">
-                      Maximum Score for Parsons Problem
-                    </Label>
-                    <Input
-                      type="number"
-                      id="parsons-max-score"
-                      value={parsonsMaxScore}
-                      onChange={(e) => setParsonsMaxScore(parseInt(e.target.value, 10))}
-                      min={1}
-                      max={50}
-                      className="mt-1 block w-full"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Points awarded based on edit distance from correct sequence
-                    </p>
-                  </div>
                 </div>
               )}
             </div>

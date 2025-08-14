@@ -181,7 +181,7 @@ const finalizeResource = async (req, res) => {
 };
 
 const saveQuestions = async (req, res, next) => {
-  const { questions, classID, examTitle, numQuestions, totalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId, single_choice_only, parsonsAnswerKey, includeParsonsProblem, parsonsMaxScore } = req.body;
+  const { questions, classID, examTitle, numQuestions, totalMarks, mcqTotalMarks, parsonsTotalMarks, examMaxAppeals, markingSchemes, template, canViewExam, canViewAnswers, templateId, single_choice_only, parsonsAnswerKey, includeParsonsProblem, parsonsMaxScore } = req.body;
 
   console.log("Received data:", {
     questions: questions ? "Provided" : "Not provided",
@@ -229,6 +229,30 @@ const saveQuestions = async (req, res, next) => {
   // Ensure single_choice_only has a valid value (default to true if not specified)
   const isSingleChoiceOnly = single_choice_only === undefined ? true : !!single_choice_only;
   
+  // Validate marking schemes - ensure each question appears only once across all schemes
+  if (markingSchemes && markingSchemes.length > 0) {
+    const usedQuestions = new Set();
+    const duplicateQuestions = [];
+    
+    markingSchemes.forEach((scheme, schemeIndex) => {
+      if (scheme.questions && Array.isArray(scheme.questions)) {
+        scheme.questions.forEach(question => {
+          if (usedQuestions.has(question)) {
+            duplicateQuestions.push(question);
+          } else {
+            usedQuestions.add(question);
+          }
+        });
+      }
+    });
+    
+    if (duplicateQuestions.length > 0) {
+      return res.status(400).json({ 
+        message: `Duplicate questions found in marking schemes: ${duplicateQuestions.join(', ')}. Each question can only be assigned to one marking scheme.`
+      });
+    }
+  }
+  
   try {
     // Create options object
     const options = JSON.stringify({ canViewExam: canViewExam, canViewAnswers: canViewAnswers });
@@ -239,8 +263,8 @@ const saveQuestions = async (req, res, next) => {
     }
     
     const writeToExam = await pool.query(
-      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, exam_max_appeals, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6, $7::JSONB, $8) RETURNING exam_id",
-      [classID, examTitle, numQuestions, totalMarks, maxAppeals, template, templateFile, options]
+      "INSERT INTO exam (class_id, exam_title, total_questions, total_marks, mcq_total_marks, parsons_total_marks, exam_max_appeals, template, template_file, viewing_options) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::JSONB, $10) RETURNING exam_id",
+      [classID, examTitle, numQuestions, totalMarks, mcqTotalMarks || numQuestions, parsonsTotalMarks || 0, maxAppeals, template, templateFile, options]
     );
 
     const insertedRowId = writeToExam.rows[0].exam_id;
@@ -486,7 +510,7 @@ const getExamQuestionDetails = async (req, res) => {
 const getExamQuestionDetailsById = async (exam_id) => {
   try {
     const result = await pool.query(
-      "SELECT total_questions, template FROM exam WHERE exam_id = $1",
+      "SELECT total_questions, template, mcq_total_marks, parsons_total_marks FROM exam WHERE exam_id = $1",
       [exam_id]
     );
 
@@ -494,11 +518,13 @@ const getExamQuestionDetailsById = async (exam_id) => {
       throw new Error(`No exam found with id ${exam_id}`);
     }
 
-    const { total_questions: totalQuestions, template: examType } = result.rows[0];
+    const { total_questions: totalQuestions, template: examType, mcq_total_marks: mcqTotalMarks, parsons_total_marks: parsonsTotalMarks } = result.rows[0];
 
     return {
       totalQuestions,
       examType,
+      mcqTotalMarks,
+      parsonsTotalMarks,
       exam_id
     };
   } catch (error) {
@@ -746,8 +772,7 @@ async function generateCustomBubbleSheet(req, res) {
     examTitle, 
     classId,
     includeParsonsProblem = false,
-    parsonsPositions = 4,
-    parsonsMaxScore = 10
+    parsonsPositions = 4
   } = req.body;
   const userId = req.auth?.sub; // Get the user ID of the requester
 
@@ -788,10 +813,9 @@ async function generateCustomBubbleSheet(req, res) {
     const { usedCommandTypes, structuredPositions } = calculateQuestionDistribution(numQuestions, numOptions, LAYOUT_PARAMS);
     usedCommandTypes.add('placeQuestionAt'); // Ensure placeQuestionAt command is always included
 
-    // Create Parsons configuration if enabled
+    // Create Parsons configuration if enabled (maxScore will be set later in ManualExamKey)
     const parsonsConfig = includeParsonsProblem ? {
-      positions: parsonsPositions,
-      maxScore: parsonsMaxScore
+      positions: parsonsPositions
     } : null;
 
     // Generate LaTeX document
@@ -887,6 +911,27 @@ const getExamDetails = async (req, res, next) => {
     WHERE sr.exam_id = $1
   `;
     const studentResultsResult = await pool.query(studentResultsQuery, [exam_id]);
+
+    // Add correct sequence to Parsons problems for each student
+    try {
+      const parsonsAnswerKey = await getParsonsAnswerKeyForExam(exam_id);
+      let correctSequence = null;
+      if (parsonsAnswerKey && parsonsAnswerKey.answerKey) {
+        correctSequence = parsonsAnswerKey.answerKey.map(item => parseInt(item.itemNumber)).filter(num => !isNaN(num));
+      }
+      
+      // Add correct sequence to each student's Parsons data
+      if (correctSequence) {
+        studentResultsResult.rows.forEach(studentResult => {
+          if (studentResult.chosen_answers && studentResult.chosen_answers.parsons) {
+            studentResult.chosen_answers.parsons.correctSequence = correctSequence;
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Error adding correct sequence to Parsons data:", error);
+      // Continue without correct sequence
+    }
 
     ExamDetails.studentResults = studentResultsResult.rows;
 
@@ -1100,13 +1145,15 @@ const getStudentAttempt = async (req, res, next) => {
     if (exam.rows.length > 0) {
       const examData = exam.rows[0];
       
-      // Check if this exam has Parsons problems and add correct answer
+      // Check if this exam has Parsons problems and add correct sequence from solution
       if (examData.chosen_answers && examData.chosen_answers.parsons) {
         try {
           const parsonsAnswerKey = await getParsonsAnswerKeyForExam(examId);
           if (parsonsAnswerKey && parsonsAnswerKey.answerKey) {
-            // Add correct sequence to the student's Parsons data
-            examData.chosen_answers.parsons.correctSequence = parsonsAnswerKey.answerKey;
+            // Convert answerKey array to correct sequence format
+            const correctSequence = parsonsAnswerKey.answerKey.map(item => parseInt(item.itemNumber)).filter(num => !isNaN(num));
+            // Add correct sequence to the student's Parsons data for display
+            examData.chosen_answers.parsons.correctSequence = correctSequence;
           }
         } catch (error) {
           console.error("Error fetching Parsons answer key:", error);
@@ -1286,10 +1333,14 @@ const callOMR = async (req, res, next) => {
         // Convert answer key array to correct sequence format
         const correctSequence = parsonsAnswerKey.answerKey.map(item => parseInt(item.itemNumber)).filter(num => !isNaN(num));
         
+        // Get exam details to retrieve the actual Parsons total marks
+        const examDetails = await getExamQuestionDetailsById(examId);
+        const actualParsonsMaxScore = examDetails.parsonsTotalMarks || parsonsAnswerKey.maxScore || 10;
+        
         parsonsConfig = {
           enabled: true,
           correct_sequence: correctSequence,
-          max_score: parsonsAnswerKey.maxScore || 10
+          max_score: actualParsonsMaxScore
         };
         console.log("Parsons config prepared:", JSON.stringify(parsonsConfig));
       }
@@ -1345,7 +1396,7 @@ async function getEvaluationJsonForExam(exam_id) {
     // get exam question details by exam id
     const examDetails = await getExamQuestionDetailsById(exam_id);
     console.log("Exam details:", JSON.stringify(examDetails));
-    const { examType, totalQuestions } = examDetails;
+    const { examType, totalQuestions, mcqTotalMarks, parsonsTotalMarks } = examDetails;
 
     // get answer key and marking schemes
     const answerKey = await getAnswerKeyForExam(exam_id);
@@ -1354,9 +1405,22 @@ async function getEvaluationJsonForExam(exam_id) {
     const customMarkingSchemes = await getCustomMarkingSchemes(exam_id);
     console.log("Custom marking schemes:", JSON.stringify(customMarkingSchemes));
 
+    // Calculate marks per question based on MCQ total marks
+    const marksPerMcqQuestion = mcqTotalMarks && totalQuestions > 0 ? (mcqTotalMarks / totalQuestions).toString() : "1";
+    
+    console.log("Evaluation JSON Debug:", {
+      examId: exam_id,
+      examType,
+      totalQuestions,
+      mcqTotalMarks,
+      parsonsTotalMarks,
+      marksPerMcqQuestion,
+      answerKeyLength: answerKey ? answerKey.length : 0
+    });
+    
     const markingSchemes = {
       DEFAULT: {
-        correct: "1",
+        correct: marksPerMcqQuestion,
         incorrect: "0",
         unmarked: "0",
       },
@@ -1397,6 +1461,17 @@ async function getEvaluationJsonForExam(exam_id) {
     } else {
       throw new Error("Invalid exam type.");
     }
+
+    console.log("Generated evaluation JSON structure:", {
+      examId: exam_id,
+      examType,
+      responseKeys: Object.keys(response),
+      page1Questions: response.page_1 ? response.page_1.options?.questions_in_order?.length : 0,
+      page1Answers: response.page_1 ? response.page_1.options?.answers_in_order?.length : 0,
+      page1Schemes: response.page_1 ? Object.keys(response.page_1.marking_schemes || {}) : [],
+      page2Questions: response.page_2 ? response.page_2.options?.questions_in_order?.length : 0,
+      page2Answers: response.page_2 ? response.page_2.options?.answers_in_order?.length : 0
+    });
 
     return response;
   } catch (error) {
