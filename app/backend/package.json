@@ -6,7 +6,7 @@
   "author": "Bret Fisher <bret@bretfisher.com>",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && tsc-alias",
     "start": "node dist/index.js",
     "start:ts": "ts-node src/index.ts",
     "dev": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs --ext ts,js --exec \"ts-node src/index.ts\" --inspect=0.0.0.0:9229",
@@ -57,6 +57,7 @@
     "nodemon": "^2.0.4",
     "supertest": "^6.3.4",
     "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.16",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.9.2"
   }

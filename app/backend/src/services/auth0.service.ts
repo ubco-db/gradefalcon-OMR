@@ -158,10 +158,10 @@ export class Auth0Service {
           throw new Error(`Failed to fetch roles: ${response.status}`);
         }
 
-        return await response.json();
+        return await response.json() as Auth0UserRole[];
       });
 
-      const studentRole = roles.find((role: any) => role.name === UserRole.STUDENT);
+      const studentRole = roles.find((role: Auth0UserRole) => role.name === UserRole.STUDENT);
       return studentRole?.id || null;
 
     } catch (error) {
@@ -173,11 +173,11 @@ export class Auth0Service {
   /**
    * Gets user's current roles
    */
-  async getUserRolesById(auth0Id: string): Promise<any[]> {
+  async getUserRolesById(auth0Id: string): Promise<Auth0UserRole[]> {
     try {
       const token = await this.getToken();
 
-      return await this.makeAuth0Request(async () => {
+      return await this.makeAuth0Request(async (): Promise<Auth0UserRole[]> => {
         const response = await fetch(
           `https://${process.env.AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(auth0Id)}/roles`,
           {
@@ -189,7 +189,7 @@ export class Auth0Service {
           return [];
         }
 
-        return await response.json();
+        return await response.json() as Auth0UserRole[];
       });
 
     } catch (error) {
@@ -208,7 +208,7 @@ export class Auth0Service {
       
       // If user already has roles, don't modify them
       if (currentRoles.length > 0) {
-        console.log(`User ${auth0Id} already has roles:`, currentRoles.map((r: any) => r.name));
+        console.log(`User ${auth0Id} already has roles:`, currentRoles.map((r: Auth0UserRole) => r.name));
         return true;
       }
 

@@ -1,0 +1,96 @@
+version: "3.9"
+
+services:
+  frontend:
+    container_name: prod_frontend
+    build:
+      context: frontend
+      target: prod
+    image: gradefalcon-frontend:prod
+    ports:
+      - "127.0.0.1:8081:80"     # single exposed port - nginx serves static files and proxies API
+    depends_on: [backend]
+    restart: unless-stopped
+    networks: [prod-app-network]
+
+  backend:
+    container_name: prod_backend
+    build:
+      context: backend
+      target: prod
+      args:
+        - NODE_ENV=production
+    image: gradefalcon-backend:prod
+    expose:
+      - "80"                  # internal only
+    env_file:
+      - ./backend/.env
+    environment:
+      - NODE_ENV=production
+      - DATABASE_HOST=db
+      - DATABASE_PORT=5432
+      - DATABASE_DB=root
+      - DATABASE_USER=root
+      - DATABASE_PASSWORD=secret
+      - JWT_SECRET=secret
+    depends_on: [db, flaskomr]
+    restart: unless-stopped
+    networks: [prod-app-network]
+
+  db:
+    container_name: prod_db_postgres
+    image: postgres:latest
+    environment:
+      - POSTGRES_DB=root
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=secret
+    volumes:
+      - ./db/sql:/docker-entrypoint-initdb.d
+      - prod-db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    networks: [prod-app-network]
+
+  flaskomr:
+    container_name: prod_flaskomr
+    build:
+      context: omr
+    image: gradefalcon-flaskomr:prod
+    environment:
+      - FLASK_ENV=production
+    expose:
+      - "5000"
+    volumes:
+      - ./omr:/app
+      - prod-omr-inputs:/app/inputs
+      - prod-omr-outputs:/app/outputs
+    depends_on: [cassandra]
+    restart: unless-stopped
+    networks: [prod-app-network]
+
+  cassandra:
+    container_name: prod_cassandra
+    image: cassandra:latest
+    environment:
+      - CASSANDRA_CLUSTER_NAME=gradefalcon
+      - CASSANDRA_DC=datacenter1
+      - CASSANDRA_RACK=rack1
+      - CASSANDRA_ENDPOINT_SNITCH=SimpleSnitch
+    volumes:
+      - prod-cassandra-data:/var/lib/cassandra
+      - ./db/cassandra:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "cqlsh", "-e", "describe keyspaces"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+    restart: unless-stopped
+    networks: [prod-app-network]
+
+networks:
+  prod-app-network:
+
+volumes:
+  prod-db-data:
+  prod-omr-inputs:
+  prod-omr-outputs:
+  prod-cassandra-data:

@@ -2,7 +2,7 @@
 
 FROM node:lts AS development
 
-ENV CI=true
+ENV CI=false
 ENV PORT=3000
 
 WORKDIR /code
@@ -23,15 +23,13 @@ apt-get update
 apt-get install -y --no-install-recommends git
 EOF
 
-RUN <<EOF
-useradd -s /bin/bash -m vscode
-groupadd docker
-usermod -aG docker vscode
-EOF
-# install Docker tools (cli, buildx, compose)
-COPY --from=gloursdocker/docker / /
-CMD [ "npm", "start" ]
+FROM nginx:1.25-alpine AS prod
 
-FROM nginx:1.13-alpine
-
+# Copy built React app
 COPY --from=builder /code/build /usr/share/nginx/html
+
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

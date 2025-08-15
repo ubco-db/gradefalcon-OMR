@@ -26,9 +26,7 @@ services:
       - ./backend/package.json:/code/package.json
       - ./backend/package-lock.json:/code/package-lock.json
       - ./backend/tsconfig.json:/code/tsconfig.json
-      - back-notused:/opt/app/node_modules
-      - omr-inputs:/code/omr/inputs
-      - omr-outputs:/code/omr/outputs
+
     networks:
       - app-network
     depends_on:
@@ -108,7 +106,6 @@ networks:
   app-network:
 
 volumes:
-  back-notused:
   db-data:
   omr-inputs:
   omr-outputs:

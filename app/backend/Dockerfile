@@ -57,10 +57,40 @@ apt-get update
 apt-get install -y --no-install-recommends git
 EOF
 
-RUN <<EOF
-useradd -s /bin/bash -m vscode
-groupadd docker
-usermod -aG docker vscode
-EOF
-# install Docker tools (cli, buildx, compose)
-COPY --from=gloursdocker/docker / /
+FROM node:lts AS prod
+
+WORKDIR /code
+
+# Copy package files
+COPY package.json package-lock.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy built application
+COPY --from=development /code/dist ./dist
+COPY --from=development /code/src/healthcheck.js ./src/
+
+# Install production system dependencies including LaTeX (same as development)
+RUN apt-get update && apt-get install -y \
+    postgresql-client \
+    texlive-latex-base \
+    texlive-fonts-recommended \
+    texlive-fonts-extra \
+    texlive-latex-extra
+
+# Health check
+HEALTHCHECK --interval=30s CMD node src/healthcheck.js
+
+# Set production environment
+ENV NODE_ENV=production
+ENV PORT=80
+EXPOSE 80
+
+# Create directories that need write permissions
+RUN mkdir -p /code/uploads /code/dist/assets/custom
+
+# Run as non-root user
+RUN groupadd -g 1001 nodejs && useradd -u 1001 -g nodejs -m nodejs && \
+    chown -R nodejs:nodejs /code/uploads /code/dist/assets
+USER nodejs
+
+CMD ["node", "dist/index.js"]
