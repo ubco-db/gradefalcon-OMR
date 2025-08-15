@@ -91,12 +91,78 @@ class LMSIntegrationService {
     try {
       const integration = await this.getClassLmsIntegration(classId);
       if (!integration) {
-        return { valid: false, error: 'No integration found' };
+        return { valid: false, error: 'No LMS integration found for this class' };
       }
+      
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
-      return await adapter.validateCredentials();
+      
+      // Step 1: Validate credentials
+      const credentialsResult = await adapter.validateCredentials();
+      if (!credentialsResult.valid) {
+        return credentialsResult;
+      }
+      
+      // Step 2: Test actual LMS connectivity by fetching courses
+      try {
+        const courses = await adapter.getCourses();
+        if (!courses || courses.length === 0) {
+          return { 
+            valid: false, 
+            error: 'Token is valid but no courses found. Make sure you have instructor access to at least one course.' 
+          };
+        }
+        
+        // Step 3: If lmsCourseId is set, verify access to that specific course
+        if (integration.lmsCourseId) {
+          const targetCourse = courses.find(course => course.id.toString() === integration.lmsCourseId.toString());
+          if (!targetCourse) {
+            return {
+              valid: false,
+              error: `Course ID ${integration.lmsCourseId} not found in your accessible courses. Please check the course ID or ensure you have instructor access.`
+            };
+          }
+          
+          // Step 4: Test student access for the specific course
+          try {
+            const students = await adapter.getStudents(integration.lmsCourseId);
+            return {
+              valid: true,
+              message: `Successfully validated LMS integration. Found ${courses.length} accessible courses and ${students.length} students in the configured course "${targetCourse.name}".`,
+              details: {
+                coursesCount: courses.length,
+                studentsCount: students.length,
+                targetCourse: targetCourse
+              }
+            };
+          } catch (studentsError) {
+            return {
+              valid: false,
+              error: `Access to course "${targetCourse.name}" verified, but unable to fetch students: ${studentsError.message}`
+            };
+          }
+        } else {
+          return {
+            valid: true,
+            message: `Successfully validated LMS integration. Found ${courses.length} accessible courses. Configure a course ID to complete the setup.`,
+            details: {
+              coursesCount: courses.length,
+              availableCourses: courses.slice(0, 5) // Show first 5 courses as preview
+            }
+          };
+        }
+        
+      } catch (connectivityError) {
+        return {
+          valid: false,
+          error: `Token is valid but LMS connectivity test failed: ${connectivityError.message}`
+        };
+      }
+      
     } catch (error) {
-      return { valid: false, error: error.message };
+      return { 
+        valid: false, 
+        error: `Validation failed: ${error.message}` 
+      };
     }
   }
 
@@ -342,7 +408,7 @@ class LMSIntegrationService {
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
         const errorData = await response.json();
-        throw new Error(`PDF generation failed: ${errorData.error || 'Unknown error'}`);
+        throw new Error(`PDF generation failed: ${(errorData && errorData['error']) || 'Unknown error'}`);
       }
       
       return Buffer.from(await response.arrayBuffer());
@@ -512,38 +578,331 @@ class LMSIntegrationService {
       if (!integration) {
         throw new Error('LMS integration not configured for this class');
       }
+
+      // Import Auth0Service for proper Auth0 integration
+      const { Auth0Service } = require('../services/auth0.service');
+      const auth0Service = new Auth0Service();
+
+      const results = {
+        successful: [],
+        failed: [],
+        total: students.length
+      };
+
+      // Pre-validation: Check for duplicates within the import batch
+      const studentIds = new Set();
+      const emails = new Set();
+      const duplicateErrors = [];
+
       for (const student of students) {
-        // Insert or update student
-        const studentQuery = {
-          text: 'INSERT INTO student (student_id, auth0_id, email, name) VALUES ($1, $2, $3, $4) ON CONFLICT (student_id) DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name',
-          values: [student.student_id, `lms|${student.lms_user_id}`, student.email, student.name],
-        };
-        await client.query(studentQuery);
+        // Check for missing required fields
+        if (!student.student_id || !student.email || !student.name || !student.lms_user_id) {
+          duplicateErrors.push(`Missing required fields for student: ${student.name || 'Unknown'}`);
+          continue;
+        }
 
-        // Insert or update LMS integration
-        const integrationQuery = {
-          text: 'INSERT INTO student_lms_integration (student_id, lms_user_id, lms_type) VALUES ($1, $2, $3) ON CONFLICT (student_id, lms_type) DO UPDATE SET lms_user_id = EXCLUDED.lms_user_id',
-          values: [student.student_id, student.lms_user_id, integration.lmsType],
-        };
-        await client.query(integrationQuery);
+        // Check for duplicate student IDs within the batch
+        if (studentIds.has(student.student_id)) {
+          duplicateErrors.push(`Duplicate student ID in import batch: ${student.student_id}`);
+        } else {
+          studentIds.add(student.student_id);
+        }
 
-        // Check if enrollment exists, if not insert it
-        const enrollmentCheckQuery = {
-          text: 'SELECT 1 FROM enrollment WHERE class_id = $1 AND student_id = $2',
-          values: [classId, student.student_id],
-        };
-        const enrollmentCheck = await client.query(enrollmentCheckQuery);
-        
-        if (enrollmentCheck.rows.length === 0) {
-          const enrollmentQuery = {
-            text: 'INSERT INTO enrollment (class_id, student_id) VALUES ($1, $2)',
-            values: [classId, student.student_id],
-          };
-          await client.query(enrollmentQuery);
+        // Check for duplicate emails within the batch
+        const normalizedEmail = student.email.toLowerCase().trim();
+        if (emails.has(normalizedEmail)) {
+          duplicateErrors.push(`Duplicate email in import batch: ${student.email}`);
+        } else {
+          emails.add(normalizedEmail);
+        }
+
+        // Validate email format
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(student.email)) {
+          duplicateErrors.push(`Invalid email format for student: ${student.name} (${student.email})`);
         }
       }
-      await client.query('COMMIT');
-      return { success: true, message: 'Students saved successfully' };
+
+      // If we found batch validation errors, abort the import
+      if (duplicateErrors.length > 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Import validation failed:\n${duplicateErrors.join('\n')}`);
+      }
+
+      // Check for conflicts with existing students in the database
+      const existingStudentIds = new Set();
+      const existingEmails = new Set();
+      const studentsToSkip = [];
+      
+      for (const studentId of studentIds) {
+        const existingStudent = await client.query('SELECT student_id, email FROM student WHERE student_id = $1', [studentId]);
+        if (existingStudent.rows.length > 0) {
+          existingStudentIds.add(studentId);
+          const student = students.find(s => s.student_id === studentId);
+          if (student) {
+            studentsToSkip.push({
+              student_id: studentId,
+              name: student.name,
+              email: student.email,
+              reason: 'Student ID already exists in database'
+            });
+          }
+        }
+      }
+
+      for (const email of emails) {
+        const existingEmailCheck = await client.query('SELECT student_id, email FROM student WHERE LOWER(email) = $1', [email]);
+        if (existingEmailCheck.rows.length > 0) {
+          existingEmails.add(email);
+          // Check if this email belongs to a different student ID
+          const conflictingStudent = existingEmailCheck.rows[0];
+          const importStudent = students.find(s => s.email.toLowerCase().trim() === email);
+          if (importStudent && conflictingStudent.student_id !== importStudent.student_id) {
+            duplicateErrors.push(`Email ${email} is already used by student ID ${conflictingStudent.student_id}, cannot assign to ${importStudent.student_id}`);
+          }
+        }
+      }
+
+      // If we found database conflicts that aren't just updates, report them
+      if (duplicateErrors.length > 0) {
+        await client.query('ROLLBACK');
+        throw new Error(`Import conflicts found:\n${duplicateErrors.join('\n')}`);
+      }
+
+      // Separate students into new vs existing
+      const studentsToCreate = students.filter(student => !existingStudentIds.has(student.student_id));
+      const studentsToEnroll = students.filter(student => existingStudentIds.has(student.student_id));
+
+      console.log(`Pre-validation complete: ${students.length} students found in LMS`);
+      console.log(`Existing students (enrollment only): ${existingStudentIds.size}`);
+      console.log(`New students (create + enrollment): ${studentsToCreate.length}`);
+
+      // Process new students (create student record + LMS integration + enrollment)
+      for (const student of studentsToCreate) {
+        try {
+          // Student data is already validated in pre-validation phase
+          
+          // Try to find existing user in Auth0 by email
+          let auth0User = null;
+          try {
+            auth0User = await auth0Service.getUserByEmail(student.email);
+          } catch (findError) {
+            console.warn(`Could not search for existing user in Auth0: ${findError.message}`);
+          }
+
+          // If user doesn't exist in Auth0, create them
+          if (!auth0User) {
+            try {
+              console.log(`Creating new Auth0 user for ${student.email}`);
+              auth0User = await auth0Service.createUser(student.email, student.name);
+              if (auth0User) {
+                console.log(`Successfully created Auth0 user: ${auth0User.auth0_id}`);
+                
+                // Assign student role to newly created user
+                try {
+                  await auth0Service.ensureStudentRole(auth0User.auth0_id);
+                  console.log(`Assigned student role to new user: ${auth0User.auth0_id}`);
+                } catch (roleError) {
+                  console.warn(`Failed to assign student role to ${auth0User.auth0_id}: ${roleError.message}`);
+                }
+              }
+            } catch (createError) {
+              // If user creation fails, we'll continue with a placeholder but log the error
+              console.error(`Failed to create Auth0 user for ${student.email}: ${createError.message}`);
+              auth0User = {
+                auth0_id: `pending_auth0|${student.email}`,
+                email: student.email,
+                name: student.name
+              };
+            }
+          } else {
+            console.log(`Found existing Auth0 user: ${auth0User.auth0_id}`);
+            
+            // For existing users, ensure they have student role if they don't have any roles
+            try {
+              await auth0Service.ensureStudentRole(auth0User.auth0_id);
+            } catch (roleError) {
+              console.warn(`Failed to ensure student role for existing user ${auth0User.auth0_id}: ${roleError.message}`);
+            }
+          }
+
+          // Insert new student (we've already filtered out existing ones)
+          try {
+            const insertStudentQuery = {
+              text: 'INSERT INTO student (student_id, auth0_id, email, name) VALUES ($1, $2, $3, $4)',
+              values: [student.student_id, auth0User.auth0_id, student.email, student.name],
+            };
+            await client.query(insertStudentQuery);
+            console.log(`Inserted new student: ${student.student_id}`);
+          } catch (insertError) {
+            // Handle unique constraint violations
+            if (insertError.code === '23505') {
+              if (insertError.constraint === 'student_pkey' || insertError.constraint === 'student_student_id_unique') {
+                throw new Error(`Student ID ${student.student_id} already exists`);
+              } else if (insertError.constraint === 'student_email_unique') {
+                throw new Error(`Email ${student.email} is already in use by another student`);
+              }
+            }
+            throw insertError;
+          }
+
+          // Insert or update LMS integration mapping
+          const integrationQuery = {
+            text: `INSERT INTO student_lms_integration (student_id, lms_user_id, lms_type) 
+                   VALUES ($1, $2, $3) 
+                   ON CONFLICT (student_id, lms_type) 
+                   DO UPDATE SET lms_user_id = EXCLUDED.lms_user_id`,
+            values: [student.student_id, student.lms_user_id, integration.lmsType],
+          };
+          await client.query(integrationQuery);
+
+          // Check if enrollment exists for this class
+          const enrollmentCheckQuery = {
+            text: 'SELECT 1 FROM enrollment WHERE class_id = $1 AND student_id = $2',
+            values: [classId, student.student_id],
+          };
+          const enrollmentCheck = await client.query(enrollmentCheckQuery);
+          
+          if (enrollmentCheck.rows.length === 0) {
+            // Insert new enrollment
+            const enrollmentQuery = {
+              text: 'INSERT INTO enrollment (class_id, student_id) VALUES ($1, $2)',
+              values: [classId, student.student_id],
+            };
+            await client.query(enrollmentQuery);
+          }
+
+          results.successful.push({
+            student_id: student.student_id,
+            name: student.name,
+            email: student.email,
+            lms_user_id: student.lms_user_id,
+            auth0_id: auth0User.auth0_id,
+            status: 'created',
+            auth0_created: !auth0User.auth0_id.startsWith('pending_auth0|'),
+            needs_auth0_setup: auth0User.auth0_id.startsWith('pending_auth0|'),
+            role_assigned: !auth0User.auth0_id.startsWith('pending_auth0|') // Role assignment attempted for valid Auth0 users
+          });
+
+        } catch (studentError) {
+          console.error(`Error processing student ${student.student_id}:`, studentError);
+          results.failed.push({
+            student_id: student.student_id || 'Unknown',
+            name: student.name || 'Unknown',
+            email: student.email || 'Unknown',
+            error: studentError.message
+          });
+        }
+      }
+
+      // Process existing students (enrollment only, skip student creation and LMS integration)
+      for (const student of studentsToEnroll) {
+        try {
+          console.log(`Processing enrollment for existing student: ${student.student_id}`);
+
+          // Check if enrollment exists for this class
+          const enrollmentCheckQuery = {
+            text: 'SELECT 1 FROM enrollment WHERE class_id = $1 AND student_id = $2',
+            values: [classId, student.student_id],
+          };
+          const enrollmentCheck = await client.query(enrollmentCheckQuery);
+          
+          if (enrollmentCheck.rows.length === 0) {
+            // Insert new enrollment
+            const enrollmentQuery = {
+              text: 'INSERT INTO enrollment (class_id, student_id) VALUES ($1, $2)',
+              values: [classId, student.student_id],
+            };
+            await client.query(enrollmentQuery);
+            console.log(`Enrolled existing student ${student.student_id} in class ${classId}`);
+
+            results.successful.push({
+              student_id: student.student_id,
+              name: student.name,
+              email: student.email,
+              lms_user_id: student.lms_user_id,
+              status: 'enrolled',
+              reason: 'Student existed, enrolled in course',
+              auth0_created: false,
+              needs_auth0_setup: false,
+              role_assigned: false
+            });
+          } else {
+            console.log(`Student ${student.student_id} already enrolled in class ${classId}`);
+
+            results.successful.push({
+              student_id: student.student_id,
+              name: student.name,
+              email: student.email,
+              lms_user_id: student.lms_user_id,
+              status: 'already_enrolled',
+              reason: 'Student already enrolled in course',
+              auth0_created: false,
+              needs_auth0_setup: false,
+              role_assigned: false
+            });
+          }
+
+        } catch (studentError) {
+          console.error(`Error enrolling existing student ${student.student_id}:`, studentError);
+          results.failed.push({
+            student_id: student.student_id || 'Unknown',
+            name: student.name || 'Unknown',
+            email: student.email || 'Unknown',
+            error: studentError.message
+          });
+        }
+      }
+
+      // Only commit if we have at least some successful imports
+      if (results.successful.length > 0) {
+        await client.query('COMMIT');
+        
+        const createdCount = results.successful.filter(s => s.status === 'created').length;
+        const enrolledCount = results.successful.filter(s => s.status === 'enrolled').length;
+        const alreadyEnrolledCount = results.successful.filter(s => s.status === 'already_enrolled').length;
+        const auth0CreatedCount = results.successful.filter(s => s.auth0_created).length;
+        const needsAuth0SetupCount = results.successful.filter(s => s.needs_auth0_setup).length;
+        const roleAssignedCount = results.successful.filter(s => s.role_assigned).length;
+        
+        // Log the import results
+        console.log(`Student import completed for class ${classId}:`, {
+          total_from_lms: results.total,
+          new_students_created: createdCount,
+          existing_students_enrolled: enrolledCount,
+          already_enrolled: alreadyEnrolledCount,
+          failed: results.failed.length,
+          auth0_created: auth0CreatedCount,
+          needs_auth0_setup: needsAuth0SetupCount,
+          role_assigned: roleAssignedCount
+        });
+
+        let message = `Processed ${results.total} students from LMS`;
+        if (createdCount > 0) {
+          message += `. Created ${createdCount} new students`;
+        }
+        if (enrolledCount > 0) {
+          message += `. Enrolled ${enrolledCount} existing students in course`;
+        }
+        if (alreadyEnrolledCount > 0) {
+          message += `. ${alreadyEnrolledCount} students were already enrolled`;
+        }
+        if (auth0CreatedCount > 0) {
+          message += `. Created ${auth0CreatedCount} new Auth0 users with student roles`;
+        }
+        if (needsAuth0SetupCount > 0) {
+          message += `. Note: ${needsAuth0SetupCount} students need manual Auth0 setup`;
+        }
+
+        return { 
+          success: true, 
+          message: message,
+          results: results
+        };
+      } else {
+        await client.query('ROLLBACK');
+        throw new Error('No students could be imported successfully. Check the errors and try again.');
+      }
+
     } catch (error) {
       await client.query('ROLLBACK');
       throw new Error(`Failed to save students: ${error.message}`);

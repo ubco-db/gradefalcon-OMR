@@ -2,6 +2,7 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import './css/App.css';
+import useUserAutoSync from './api/useUserAutoSync';
 
 // Import components
 import Layout from './components/Layout';
@@ -51,6 +52,9 @@ import ReplyAppeal from "./pages/Instructor/ReplyAppeal";
 import LmsIntegration from "./pages/Instructor/LmsIntegration";
 
 function App() {
+  // Auto-sync user when they log in
+  useUserAutoSync();
+
   return (
     <Router>
       <div className="App">

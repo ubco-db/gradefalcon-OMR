@@ -39,9 +39,13 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "../../
 
 const ManualExamKey = () => {
   const location = useLocation();
-  const { examTitle, classID, courseId, template, numQuestions: initialNumQuestions, templateId } = location.state || {};  // Extract numQuestions
+  const { examTitle, classID, courseId, template, numQuestions: initialNumQuestions, templateId, includeParsonsProblem, parsonsPositions, parsonsMaxScore } = location.state || {};  // Extract numQuestions and Parsons config
+  
+  console.log("ManualExamKey received Parsons config:", { includeParsonsProblem, parsonsPositions, parsonsMaxScore });
   const [numQuestions, setNumQuestions] = useState(initialNumQuestions || 10);
   const [numOptions, setNumOptions] = useState(5);
+  const [mcqTotalMarks, setMcqTotalMarks] = useState();
+  const [parsonsTotalMarks, setParsonsTotalMarks] = useState(10); // Default 10 marks, can be manually adjusted
   const [totalMarks, setTotalMarks] = useState();
   const [selectedOptions, setSelectedOptions] = useState([]);
   const [selectedQuestions, setSelectedQuestions] = useState([]);
@@ -56,11 +60,33 @@ const ManualExamKey = () => {
     incorrect: 0,
     unmarked: 0,
   });
+  const [parsonsAnswerKey, setParsonsAnswerKey] = useState([]);
+  const parsonsInitializedRef = useRef(false);
 
-  const frameworks = Array.from({ length: numQuestions }, (_, j) => ({
-    value: `Question ${j + 1}`,
-    label: `Q${j + 1}`,
-  }));
+  // Get questions that are already used in existing marking schemes
+  const getUsedQuestions = () => {
+    const usedQuestions = new Set();
+    markingSchemes.forEach(scheme => {
+      scheme.questions.forEach(question => {
+        // Convert from 'q1' format to 'Question 1' format
+        const questionNumber = question.replace('q', '');
+        usedQuestions.add(`Question ${questionNumber}`);
+      });
+    });
+    return usedQuestions;
+  };
+
+  // Generate available frameworks (exclude already used questions)
+  const frameworks = Array.from({ length: numQuestions }, (_, j) => {
+    const questionValue = `Question ${j + 1}`;
+    const usedQuestions = getUsedQuestions();
+    
+    return {
+      value: questionValue,
+      label: `Q${j + 1}`,
+      disabled: usedQuestions.has(questionValue), // Disable if already used
+    };
+  }).filter(option => !option.disabled); // Only show available questions
 
   const removeQuestion = (questionNumber, option) => {
     setSelectedOptions((prevOptions) =>
@@ -141,15 +167,64 @@ const ManualExamKey = () => {
     }
   }, [numQuestions, numOptions, selectedOptions]);
 
+  // Calculate MCQ total marks from custom marking schemes
+  const calculateMcqTotalFromSchemes = () => {
+    if (markingSchemes.length === 0) {
+      return numQuestions; // Default: 1 mark per question
+    }
+    
+    let totalFromSchemes = 0;
+    const questionsInSchemes = new Set();
+    
+    // Add marks from custom schemes
+    markingSchemes.forEach(scheme => {
+      scheme.questions.forEach(question => {
+        questionsInSchemes.add(question);
+        totalFromSchemes += scheme.correct; // Use the 'correct' value as the max marks for this question
+      });
+    });
+    
+    // Add default marks (1 mark each) for questions not in any custom scheme
+    const questionsInCustomSchemes = questionsInSchemes.size;
+    const questionsWithDefaultMarking = numQuestions - questionsInCustomSchemes;
+    totalFromSchemes += questionsWithDefaultMarking * 1; // 1 mark per default question
+    
+    return totalFromSchemes;
+  };
+
   useEffect(() => {
-    setTotalMarks(numQuestions);
+    // Auto-calculate and prefill MCQ total marks based on marking schemes
+    const calculatedMcqMarks = calculateMcqTotalFromSchemes();
+    setMcqTotalMarks(calculatedMcqMarks);
+    
+    // Auto-calculate and prefill overall total marks
+    const calculatedTotal = calculatedMcqMarks + (includeParsonsProblem ? parsonsTotalMarks : 0);
+    setTotalMarks(calculatedTotal);
+    
     updateQuestions();
-  }, [numQuestions, numOptions, updateQuestions]);
+  }, [numQuestions, numOptions, updateQuestions, includeParsonsProblem, parsonsTotalMarks, markingSchemes]);
+
+  // Separate useEffect for Parsons initialization to avoid dependency issues
+  useEffect(() => {
+    if (includeParsonsProblem && parsonsPositions && (!parsonsInitializedRef.current || parsonsAnswerKey.length !== parsonsPositions)) {
+      const initialKey = Array.from({ length: parsonsPositions }, (_, i) => ({ position: i + 1, itemNumber: '' }));
+      setParsonsAnswerKey(initialKey);
+      parsonsInitializedRef.current = true;
+    } else if (!includeParsonsProblem) {
+      // Clear the array if Parsons is disabled
+      setParsonsAnswerKey([]);
+      parsonsInitializedRef.current = false;
+    }
+  }, [includeParsonsProblem, parsonsPositions, parsonsAnswerKey.length]);
 
   const handleSelectChange = (values) => {
+    // Additional validation to ensure no used questions are selected
+    const usedQuestions = getUsedQuestions();
+    const validValues = values.filter(value => !usedQuestions.has(value));
+    
     setCustomScheme((prev) => ({
       ...prev,
-      questions: values,
+      questions: validValues,
     }));
   };
 
@@ -161,9 +236,19 @@ const ManualExamKey = () => {
     if (customScheme.questions.length === 0) {
       setShowAlert(true);
       return;
-    } else {
-      setShowAlert(false);
     }
+    
+    // Check for duplicate questions across existing schemes
+    const usedQuestions = getUsedQuestions();
+    const duplicateQuestions = customScheme.questions.filter(question => usedQuestions.has(question));
+    
+    if (duplicateQuestions.length > 0) {
+      // This shouldn't happen with our filtering, but just in case
+      alert(`Questions ${duplicateQuestions.join(', ')} are already used in other marking schemes.`);
+      return;
+    }
+    
+    setShowAlert(false);
 
     const formattedQuestions = customScheme.questions.map((q) => `q${q.split(" ")[1]}`);
 
@@ -198,6 +283,16 @@ const ManualExamKey = () => {
 
   const handleDeleteScheme = (index) => {
     setMarkingSchemes((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleParsonsAnswerChange = (position, value) => {
+    setParsonsAnswerKey((prev) => {
+      const updated = prev.map((item) =>
+        item.position === position ? { ...item, itemNumber: value } : item
+      );
+      console.log("Updated Parsons answer key:", updated);
+      return updated;
+    });
   };
   
   const handleFileSelect = () => {
@@ -347,9 +442,17 @@ const ManualExamKey = () => {
           questions: selectedOptions,
           numQuestions: numQuestions,
           totalMarks: totalMarks,
+          mcqTotalMarks: mcqTotalMarks,
+          parsonsTotalMarks: parsonsTotalMarks,
           markingSchemes: markingSchemes,
           template: template,
           templateId: templateId,
+          parsonsAnswerKey: includeParsonsProblem ? parsonsAnswerKey : null,
+          includeParsonsProblem: includeParsonsProblem,
+          parsonsMaxScore: parsonsTotalMarks, // Use the manually set total marks
+        }}
+        onClick={() => {
+          console.log("Navigating to ExamControls with Parsons answer key:", parsonsAnswerKey);
         }}
       >
         <Button size="icon" className="h-10 w-10">
@@ -464,19 +567,108 @@ const ManualExamKey = () => {
               Add Custom Marking Scheme
             </Button>
           </CardFooter>
-          <div className="mt-4"> 
-          <Label>
-            Total Marks
-          </Label>
-          <Input
-            type="number"
-            value={totalMarks}
-            className = "w-15"
-            onChange={(e) => setTotalMarks(e.target.value)}
-          />
+          <div className="mt-4 space-y-4"> 
+          <div>
+            <Label>
+              MCQ Total Marks
+              <span className="text-xs text-gray-500 ml-2">
+                (Calculated: {calculateMcqTotalFromSchemes()})
+              </span>
+            </Label>
+            <Input
+              type="number"
+              value={mcqTotalMarks}
+              className="w-20"
+              onChange={(e) => {
+                const newMcqMarks = parseInt(e.target.value) || 0;
+                setMcqTotalMarks(newMcqMarks);
+                setTotalMarks(newMcqMarks + (includeParsonsProblem ? parsonsTotalMarks : 0));
+              }}
+              title={`Auto-calculated based on marking schemes: ${calculateMcqTotalFromSchemes()}`}
+            />
+          </div>
+          {includeParsonsProblem && (
+            <div>
+              <Label>
+                Parsons Problem Total Marks
+              </Label>
+              <Input
+                type="number"
+                value={parsonsTotalMarks}
+                className="w-20"
+                onChange={(e) => {
+                  const newParsonsMarks = parseInt(e.target.value) || 0;
+                  setParsonsTotalMarks(newParsonsMarks);
+                  setTotalMarks(mcqTotalMarks + newParsonsMarks);
+                }}
+              />
+            </div>
+          )}
+          <div>
+            <Label>
+              Overall Total Marks
+              <span className="text-xs text-gray-500 ml-2">
+                (Calculated: {mcqTotalMarks + (includeParsonsProblem ? parsonsTotalMarks : 0)})
+              </span>
+            </Label>
+            <Input
+              type="number"
+              value={totalMarks}
+              className="w-20"
+              onChange={(e) => {
+                const newTotal = parseInt(e.target.value) || 0;
+                setTotalMarks(newTotal);
+              }}
+              title={`Auto-calculated: ${mcqTotalMarks + (includeParsonsProblem ? parsonsTotalMarks : 0)}`}
+            />
+          </div>
         </div>
         </Card>
       </div>
+
+      {/* Parsons Problem Answer Key Section */}
+      {includeParsonsProblem && (
+        <Card className="bg-white border rounded-lg w-full md:w-full p-6">
+          <CardHeader>
+            <CardTitle>Parsons Problem Answer Key</CardTitle>
+            <CardDescription>
+              Set the correct sequence for the code ordering problem. 
+              Enter the item numbers in the order they should appear.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              {parsonsAnswerKey.map((item) => (
+                <div key={item.position} className="space-y-2">
+                  <Label htmlFor={`pos-${item.position}`} className="text-sm font-medium">
+                    Position {item.position}
+                  </Label>
+                  <Input
+                    id={`pos-${item.position}`}
+                    type="number"
+                    min="1"
+                    max="999"
+                    placeholder="Item #"
+                    value={item.itemNumber}
+                    onChange={(e) => handleParsonsAnswerChange(item.position, e.target.value)}
+                    className="w-full"
+                  />
+                  <p className="text-xs text-gray-500">
+                    Which item should be in {item.position === 1 ? '1st' : item.position === 2 ? '2nd' : item.position === 3 ? '3rd' : `${item.position}th`} position
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+              <h4 className="text-sm font-medium text-blue-900">Example:</h4>
+              <p className="text-sm text-blue-800 mt-1">
+                If your code items are numbered 1-20 and the correct sequence is items 3, 7, 1, 12, then enter:
+                Position 1: 3, Position 2: 7, Position 3: 1, Position 4: 12
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card className="bg-white border rounded-lg w-full md:w-full p-0 md:h-auto">
         <CardHeader className="flex flex-row items-center bg-muted/50 px-6 py-4 w-full">

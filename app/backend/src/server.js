@@ -16,6 +16,7 @@ const reportRoutes = require('./routes/reportRoutes');
 const imageRoutes = require('./routes/imageRoutes');
 const gradeAppealRoutes = require('./routes/gradeAppealRoutes');
 const lmsRoutes = require('./routes/lmsRoutes');
+const userSyncRoutes = require('./routes/user-sync.routes');
 
 const app = express();
 
@@ -40,13 +41,13 @@ app.use(
 );
 
 const checkJwt = auth({
-  audience: process.env.REACT_APP_AUTH0_AUDIENCE || 'https://your-production-domain.com/api',
-  issuerBaseURL: process.env.REACT_APP_AUTH0_ISSUERURL || 'https://your-auth0-domain.auth0.com',
+  audience: process.env.AUTH0_AUDIENCE || 'https://your-production-domain.com/api',
+  issuerBaseURL: process.env.AUTH0_ISSUERURL || 'https://your-auth0-domain.auth0.com',
 });
 
 const checkRole = (role) => {
   return (req, res, next) => {
-    const roles = req.auth.payload[`${process.env.REACT_APP_AUTH0_MYAPP}/role`] || [];
+    const roles = req.auth.payload[`${process.env.AUTH0_MYAPP}/role`] || [];
     if (roles.includes(role)) {
       next();
     } else {
@@ -69,6 +70,7 @@ app.use('/images', checkJwt, imageRoutes);
 app.post('/token', getAuth0ManagementToken); // New route for token generation
 app.use('/gradeappeal', checkJwt, gradeAppealRoutes);
 app.use('/lms', checkJwt, lmsRoutes);
+app.use('/usersync', checkJwt, userSyncRoutes);
 app.get('/api/public', (req, res) => {
   res.json({
     message: 'Hello from a public endpoint! You don\'t need to be authenticated to see this.'

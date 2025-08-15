@@ -78,7 +78,8 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
   const formatAnswers = useCallback(() => {
     const formatted = {
       correct: {},
-      student: {}
+      student: {},
+      parsons: null
     };
 
     // Format correct answers from [{q1:A},{q2:B}] to {q1:A,q2:B}
@@ -89,11 +90,14 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
       })
     }
 
-    // Format student answers from [{q1:A},{q2:B}] to {q1:A,q2:B}
-    studentAnswers?.forEach(answer => {
-      const [[key, value]] = Object.entries(answer);
-      formatted.student[key] = value;
-    });
+    // Handle new structured format: {mcq: [{q1:A},{q2:B}], parsons: {...}}
+    if (studentAnswers && studentAnswers.mcq) {
+      studentAnswers.mcq.forEach(answer => {
+        const [[key, value]] = Object.entries(answer);
+        formatted.student[key] = value;
+      });
+      formatted.parsons = studentAnswers.parsons;
+    }
  
     return formatted;
   }, [correctAnswers, studentAnswers]);
@@ -180,6 +184,28 @@ export const AnswerGrid = ({ totalQuestions, correctAnswers, studentAnswers, app
               );
             })}
           </div>
+          
+          {/* Parsons Problem Section */}
+          {answers.parsons && (
+            <div className="mt-6 pt-4 border-t">
+              <h3 className="text-lg font-semibold mb-3">Parsons Problem (Code Ordering)</h3>
+              <div className="bg-gray-50 p-4 rounded-lg">
+                <div className="mb-2">
+                  <strong>Student Sequence:</strong> {answers.parsons.sequence ? answers.parsons.sequence.join(' → ') : 'No answer'}
+                </div>
+                {answers.parsons.correctSequence && (
+                  <div className="mb-2">
+                    <strong>Correct Sequence:</strong> {answers.parsons.correctSequence.join(' → ')}
+                  </div>
+                )}
+                {answers.parsons.score !== undefined && (
+                  <div className="mb-2">
+                    <strong>Score:</strong> {answers.parsons.score} / {answers.parsons.maxScore || 10}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </ScrollArea>
       </CardContent>
       <CardContent>

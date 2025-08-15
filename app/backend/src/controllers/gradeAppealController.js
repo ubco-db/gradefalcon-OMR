@@ -241,6 +241,15 @@ const fetchStudentResolvedGradeAppeals = async (req, res, next) => {
 const fetchStudentUnresolvedGradeAppeals = async (req, res, next) => {
   try {
     const {student_id: studentId, exam_id: examId} = req.params;
+    
+    // Validate parameters - check for null/undefined/invalid values
+    if (!studentId || studentId === 'null' || !examId || examId === 'null') {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Invalid student_id or exam_id parameters" 
+      });
+    }
+    
     const result = await pool.query(
         `SELECT grade_appeal_id, exam_id, appeal_details, name
          FROM student_grade_appeals_view

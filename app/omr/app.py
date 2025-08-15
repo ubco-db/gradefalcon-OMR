@@ -13,6 +13,7 @@ from cassandra_client import CassandraClient
 import requests
 
 from export_functions import export_exam_results_handler, generate_student_pdf_handler
+from parsons_processor import process_parsons_answers, score_parsons_problem, calculate_edit_distance
 
 app = Flask(__name__)
 cassandra_client = CassandraClient()
@@ -210,6 +211,7 @@ def process_omr(exam_id):
     templates = data.get('templates')
     evaluation_json = data.get('evaluation_json')
     single_choice_only = data.get('single_choice_only', True)  # Default to True if not specified
+    parsons_config = data.get('parsons_config')  # Optional Parsons problem configuration
     
     if not templates:
         return jsonify({"error": "Missing templates in request body"}), 400
@@ -225,6 +227,28 @@ def process_omr(exam_id):
     # Ensure subdirectories exist
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
+    
+    # Clear previous output results to avoid accumulating results from multiple test runs
+    try:
+        # Clear previous Results directories
+        page1_results_dir = os.path.join(out_dir, "page_1", "Results")
+        if os.path.exists(page1_results_dir):
+            shutil.rmtree(page1_results_dir)
+            app.logger.info(f"Cleared previous page_1 results: {page1_results_dir}")
+        
+        page2_results_dir = os.path.join(out_dir, "page_2", "Results")
+        if os.path.exists(page2_results_dir):
+            shutil.rmtree(page2_results_dir)
+            app.logger.info(f"Cleared previous page_2 results: {page2_results_dir}")
+        
+        # Clear previous student_results.json
+        student_results_path = os.path.join(out_dir, "student_results.json")
+        if os.path.exists(student_results_path):
+            os.remove(student_results_path)
+            app.logger.info(f"Cleared previous student results file: {student_results_path}")
+            
+    except Exception as e:
+        app.logger.error(f"Error clearing previous results: {e}")
     
     # Set default 30 days expiry time
     set_folder_expiry(exam_id)
@@ -261,7 +285,7 @@ def process_omr(exam_id):
 
         # Process results and store images in Cassandra
         app.logger.info(f"Starting to process results and store images for exam_id: {exam_id}")
-        process_results_and_store_images(exam_id, single_choice_only)
+        process_results_and_store_images(exam_id, single_choice_only, parsons_config)
         app.logger.info(f"Completed processing results and storing images for exam_id: {exam_id}")
         
         # Process success, update expiry time to 2 hours later
@@ -277,7 +301,7 @@ def process_omr(exam_id):
         app.logger.error(f"OMR Script Exception: {e}")
         return jsonify({"error": str(e)}), 500
 
-def process_results_and_store_images(exam_id, single_choice_only=True):
+def process_results_and_store_images(exam_id, single_choice_only=True, parsons_config=None):
     """Process OMR results, store images in Cassandra, and create a combined result with UUIDs"""
     # Use exam_id specific directories
     base_input_dir = "./inputs"
@@ -323,7 +347,7 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
     
     # check if page_1 results file exists
     if not page1_results_file:
-        app.logger.error(f"Results file not found in page_1 directory")
+        app.logger.error(f"Results file not found in page_1 directory: {page1_results_dir}")
         return
     
     # read page_1 data
@@ -366,9 +390,12 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
             with open(page2_results_file, 'r') as csvfile:
                 reader = csv.DictReader(csvfile)
                 headers_page2 = reader.fieldnames
+                app.logger.info(f"Page 2 headers: {headers_page2}")
                 
                 # process each row
                 for row in reader:
+                    app.logger.debug(f"Page 2 row keys: {list(row.keys())}")
+                    app.logger.debug(f"Page 2 row data: {row}")
                     page2_results.append(row)
     
     # merge page_1 and page_2 results
@@ -378,6 +405,7 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
     for p1_row in page1_results:
         student_id = p1_row.get('StudentID', p1_row.get('file_id', f"unknown_{uuid.uuid4()}"))
         app.logger.info(f"Processing student ID: {student_id}")
+        app.logger.info(f"Page 1 file_id: {p1_row.get('file_id')}")
         
         # store images to Cassandra
         front_original_path = os.path.join(input_dir, "page_1", p1_row['file_id'])
@@ -405,7 +433,10 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
                     "results": front_results_uuid
                 }
             },
-            "chosen_answers": {}
+            "chosen_answers": {
+                "mcq": {},
+                "parsons": None
+            }
         }
         
         # Initialize multiple answers tracking if single_choice_only is enabled
@@ -415,11 +446,18 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
         # Add page_1 answers
         for key, value in p1_row.items():
             if key.startswith('q') and value.strip():
-                student_result["chosen_answers"][key] = value
+                student_result["chosen_answers"]["mcq"][key] = value
                 
                 # Check for multiple answers if single_choice_only is enabled
                 if single_choice_only and len(value.strip()) > 1:
                     student_result["has_multiple_answers"].append(key)
+        
+        # Exam Type Logic:
+        # 1. Single page: MCQ only
+        # 2. Two pages + parsons_config: Page 1 = MCQ, Page 2 = Parsons  
+        # 3. Two pages + no parsons_config: Page 1 & 2 = MCQ questions
+        
+        has_parsons_exam = parsons_config is not None
         
         # If page_2 data exists, find matching row
         if has_page2 and page2_results:
@@ -460,34 +498,73 @@ def process_results_and_store_images(exam_id, single_choice_only=True):
                     "results": back_results_uuid
                 }
                 
-                # Calculate total score
-                try:
-                    p1_score = float(student_result["Score"]) if student_result["Score"] else 0
-                    p2_score = float(matching_p2_row.get("score", "0")) if matching_p2_row.get("score") else 0
+                if has_parsons_exam:
+                    # Case: Parsons exam - Page 2 contains Parsons problem
+                    parsons_answers = process_parsons_answers(matching_p2_row)
+                    app.logger.debug(f"Parsons answers from page 2 for student {student_id}: {parsons_answers}")
                     
-                    total_score = p1_score + p2_score
-                    student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
-                except (ValueError, TypeError) as e:
-                    app.logger.error(f"Error calculating total score: {e}")
-                
-                # Add page_2 answers
-                for key, value in matching_p2_row.items():
-                    if key.startswith('q') and value.strip():
-                        if key in student_result["chosen_answers"]:
-                            # This is a duplicate question on page 2, rename to page2_q*
-                            new_key = f"page2_{key}"
-                            student_result["chosen_answers"][new_key] = value
+                    if parsons_answers:
+                        # Calculate Parsons score using edit distance
+                        correct_sequence = parsons_config.get('correct_sequence', [])
+                        max_score = parsons_config.get('max_score', 10)
+                        
+                        parsons_score = 0
+                        if correct_sequence:
+                            parsons_score = score_parsons_problem(
+                                parsons_answers, 
+                                correct_sequence, 
+                                max_score
+                            )
                             
-                            # Check for multiple answers in page 2 duplicate questions
-                            if single_choice_only and len(value.strip()) > 1:
-                                student_result["has_multiple_answers"].append(new_key)
-                        else:
-                            # This is a new question
-                            student_result["chosen_answers"][key] = value
-                            
-                            # Check for multiple answers in page 2 new questions
-                            if single_choice_only and len(value.strip()) > 1:
-                                student_result["has_multiple_answers"].append(key)
+                            # Add Parsons score to total
+                            try:
+                                current_score = float(student_result["Score"]) if student_result["Score"] else 0
+                                total_score = current_score + parsons_score
+                                student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
+                            except (ValueError, TypeError) as e:
+                                app.logger.error(f"Error adding Parsons score to total: {e}")
+                        
+                        # Store Parsons data in structured format (without correct sequence)
+                        student_result["chosen_answers"]["parsons"] = {
+                            "sequence": parsons_answers,
+                            "score": parsons_score,
+                            "maxScore": max_score
+                        }
+                    else:
+                        # No Parsons answers found but exam expects them
+                        student_result["chosen_answers"]["parsons"] = {
+                            "sequence": []
+                        }
+                else:
+                    # Case: Two-page MCQ exam - Page 2 contains additional MCQ questions
+                    # Calculate total MCQ score from both pages
+                    try:
+                        p1_score = float(student_result["Score"]) if student_result["Score"] else 0
+                        p2_score = float(matching_p2_row.get("score", "0")) if matching_p2_row.get("score") else 0
+                        
+                        total_score = p1_score + p2_score
+                        student_result["Score"] = str(int(total_score) if total_score.is_integer() else total_score)
+                    except (ValueError, TypeError) as e:
+                        app.logger.error(f"Error calculating total MCQ score: {e}")
+                    
+                    # Add page_2 MCQ answers
+                    for key, value in matching_p2_row.items():
+                        if key.startswith('q') and value.strip():
+                            if key in student_result["chosen_answers"]["mcq"]:
+                                # Duplicate question on page 2, rename with page2_ prefix
+                                new_key = f"page2_{key}"
+                                student_result["chosen_answers"]["mcq"][new_key] = value
+                                
+                                # Check for multiple answers in page 2 duplicate questions
+                                if single_choice_only and len(value.strip()) > 1:
+                                    student_result["has_multiple_answers"].append(new_key)
+                            else:
+                                # New question from page 2
+                                student_result["chosen_answers"]["mcq"][key] = value
+                                
+                                # Check for multiple answers in page 2 new questions
+                                if single_choice_only and len(value.strip()) > 1:
+                                    student_result["has_multiple_answers"].append(key)
         
         # Clean up has_multiple_answers if empty
         if single_choice_only and not student_result["has_multiple_answers"]:
@@ -520,7 +597,7 @@ def get_student_scores():
     
     if not os.path.exists(student_results_path):
         # If the file doesn't exist, call process_results_and_store_images
-        process_results_and_store_images(exam_id, single_choice_only)
+        process_results_and_store_images(exam_id, single_choice_only, None)
         
         # Check again after processing
         if not os.path.exists(student_results_path):
@@ -537,6 +614,7 @@ def get_student_scores():
 
 @app.route('/split_pdf', methods=['POST'])
 def split_pdf():
+    app.logger.info("DEBUG: split_pdf endpoint called!")
     try:
         # check if pdf file is uploaded
         if 'pdf_file' not in request.files:
@@ -574,6 +652,7 @@ def split_pdf():
         
         # process pdf file
         try:
+            app.logger.info(f"DEBUG: PDF processing params - double_side={double_side}, is_custom={is_custom}")
             # call pdf_to_images and get return result
             results = pdf_to_images(input_dir, input_dir, double_pages=double_side, is_custom=is_custom)
             
@@ -622,6 +701,43 @@ def export_exam_results():
 def generate_student_pdf():
     """Generate PDF for a single student's exam submission"""
     return generate_student_pdf_handler(app, cassandra_client, request)
+
+@app.route('/score_parsons', methods=['POST'])
+def score_parsons():
+    """
+    Endpoint to score individual Parsons problems using edit distance.
+    Expected JSON payload:
+    {
+        "student_sequence": [30, 15, 2, 1],
+        "correct_sequence": [1, 2, 15, 30],
+        "max_score": 10
+    }
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "JSON data required"}), 400
+        
+        student_sequence = data.get('student_sequence')
+        correct_sequence = data.get('correct_sequence')
+        max_score = data.get('max_score', 10)
+        
+        if not student_sequence or not correct_sequence:
+            return jsonify({"error": "Both student_sequence and correct_sequence are required"}), 400
+        
+        score = score_parsons_problem(student_sequence, correct_sequence, max_score)
+        
+        return jsonify({
+            "student_sequence": student_sequence,
+            "correct_sequence": correct_sequence,
+            "score": score,
+            "max_score": max_score,
+            "edit_distance": calculate_edit_distance(student_sequence, correct_sequence)
+        }), 200
+        
+    except Exception as e:
+        app.logger.error(f"Error scoring Parsons problem: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)

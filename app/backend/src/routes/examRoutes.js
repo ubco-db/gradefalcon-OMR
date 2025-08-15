@@ -109,122 +109,7 @@ router.get("/getStudentAttempt/:exam_id", async (req, res, next) => {
 router.post("/studentScores", checkJwt, checkPermissions(["read:grades"]), fetchStudentScores);
 
 
-router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {
-  const { examType, numQuestions } = req.params;
-
-  const upload = multer({ dest: "uploads/" }).single("examPages");
-
-  upload(req, res, async function (err) {
-    if (err) {
-      return res.status(500).send("Error uploading file.");
-    }
-
-    const { path: tempFilePath } = req.file;
-    const exam_id = req.body.exam_id; 
-
-    if (!exam_id) {
-      fs.unlinkSync(tempFilePath); 
-      return res.status(400).send("Missing exam_id parameter");
-    }
-
-    try {
-      // create FormData object, for sending file
-      const formData = new FormData();
-      formData.append('pdf_file', fs.createReadStream(tempFilePath));
-      formData.append('exam_id', exam_id);
-      
-      // set doubleSide parameter based on exam type
-      const doubleSide = examType === "200mcq" || (examType === "custom" && numQuestions > 100) || examType === "100mcq";
-      formData.append('doubleSide', doubleSide.toString());
-
-      // send request to Flask OMR service split_pdf endpoint
-      const response = await fetch("http://flaskomr:5000/split_pdf", {
-        method: "POST",
-        body: formData
-      });
-      
-      // delete temporary file
-      fs.unlinkSync(tempFilePath);
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`PDF split failed: ${errorData.error || 'Unknown error'}`);
-      }
-      
-      const responseData = await response.json();
-      res.json({ 
-        message: "Exam uploaded successfully", 
-        details: responseData 
-      });
-      
-    } catch (error) {
-      console.error("Error processing PDF file:", error);
-      // ensure temporary file is deleted
-      try {
-        if (fs.existsSync(tempFilePath)) {
-          fs.unlinkSync(tempFilePath);
-        }
-      } catch (unlinkError) {
-        console.error("Error deleting temporary file:", unlinkError);
-      }
-      res.status(500).send(`Error processing PDF file: ${error.message}`);
-    }
-  });
-});
-
-router.post("/fetchChangelog", checkJwt, checkPermissions(["read:grades"]), getGradeChangeLog);
-
-// TODO: Legacy route for getting results used by examkey, remove when examkey is removed
-router.post("/getResults", checkJwt, checkPermissions(["read:grades"]), async function (req, res) {
-  const singlePage = req.body.singlePage;
-  const inputDirPath = path.join(__dirname, "../../omr/inputs");
-  const outputDirPath = path.join(__dirname, "../../omr/outputs");
-  if (singlePage) {
-    const results = []; // Array to hold all rows of data
-    console.log("singlePage");
-    fs.createReadStream(path.join(outputDirPath, "page_1/Results/Results.csv"))
-      .pipe(csv())
-      .on("data", (data) => results.push(data)) // Push each row of data into the results array
-      .on("end", () => {
-        // Once file reading is done, send the entire results array as a response
-        res.json({ csv_file: results });
-      })
-
-      .on("error", (error) => {
-        // Handle any errors during file reading
-        console.error("Error reading CSV file:", error);
-        res.status(500).send("Error reading CSV file");
-      });
-  } else {
-    const resultsPage1 = [];
-    const resultsPage2 = [];
-
-    // Read page_1/Results/Results.csv
-    fs.createReadStream(path.join(outputDirPath, "page_1/Results/Results.csv"))
-      .pipe(csv())
-      .on("data", (data) => resultsPage1.push(data))
-      .on("end", () => {
-        // Read page_2/Results/Results.csv
-        fs.createReadStream(path.join(outputDirPath, "page_2/Results/Results.csv"))
-          .pipe(csv())
-          .on("data", (data) => resultsPage2.push(data))
-          .on("end", () => {
-            // Combine results from both pages
-            const combinedResults = [{ ...resultsPage1[0], ...resultsPage2[0] }];
-            // Send the combined results as a response
-            res.json({ csv_file: combinedResults });
-          })
-          .on("error", (error) => {
-            console.error("Error reading CSV file from page 2:", error);
-            res.status(500).send("Error reading CSV file from page 2");
-          });
-      })
-      .on("error", (error) => {
-        console.error("Error reading CSV file from page 1:", error);
-        res.status(500).send("Error reading CSV file from page 1");
-      });
-  }
-});
+router.post("/UploadExam/:examType/:numQuestions", checkJwt, checkPermissions(["upload:file"]), uploadExam);
 
 // Save student exams to the database
 // Removed saveStudentExams route since it's no longer being used
@@ -461,7 +346,7 @@ router.post("/fetchSolution/:exam_id", checkJwt, checkPermissions(["read:exam_st
 router.post('/fetchSolutionAnswers/:exam_id', checkJwt, checkPermissions(["read:exam_student"]), fetchSolutionAnswers);
 
 router.post("/changeGrade", checkJwt, checkPermissions(["update:grades"]), changeGrade);
-
+router.post("/fetchChangelog", checkJwt, checkPermissions(["read:grades"]), getGradeChangeLog);
 
 //test routes
 router.post("/test", checkJwt, checkPermissions(["upload:file"]), async function (req, res) {

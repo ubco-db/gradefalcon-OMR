@@ -11,7 +11,6 @@ import {
 } from "../../components/ui/card";
 import { Switch } from "../../components/ui/switch"; // Importing the Shadcn UI Switch component
 import { useToast } from "../../components/ui/use-toast"; // Importing the useToast hook
-import { Toaster } from "../../components/ui/toaster"; // Importing the Toaster component
 import { useAuth0 } from "@auth0/auth0-react"; // Import Auth0
 
 const ExamControls = () => {
@@ -24,11 +23,18 @@ const ExamControls = () => {
     questions,
     numQuestions,
     totalMarks,
+    mcqTotalMarks,
+    parsonsTotalMarks,
     examMaxAppeals,
     template,
     markingSchemes = [],
     templateId,
+    parsonsAnswerKey,
+    includeParsonsProblem,
+    parsonsMaxScore,
   } = location.state || {};
+
+  console.log("ExamControls received Parsons data:", { parsonsAnswerKey, includeParsonsProblem, parsonsMaxScore });
   const { toast } = useToast();
 
   // State variables for toggle buttons
@@ -47,12 +53,17 @@ const ExamControls = () => {
       questions,
       numQuestions,
       totalMarks,
-    examMaxAppeals,
+      mcqTotalMarks,
+      parsonsTotalMarks,
+      examMaxAppeals,
       markingSchemes,
       template,
       canViewExam,
       canViewAnswers,
       templateId,
+      parsonsAnswerKey,
+      includeParsonsProblem,
+      parsonsMaxScore,
     });
 
     try {
@@ -69,12 +80,17 @@ const ExamControls = () => {
           questions: questions,
           numQuestions: numQuestions,
           totalMarks: totalMarks,
+          mcqTotalMarks: mcqTotalMarks,
+          parsonsTotalMarks: parsonsTotalMarks,
           examMaxAppeals: examMaxAppeals,
           markingSchemes: markingSchemes,
           template: template,
           canViewExam: canViewExam,
           canViewAnswers: canViewAnswers,
           templateId: templateId,
+          parsonsAnswerKey: parsonsAnswerKey,
+          includeParsonsProblem: includeParsonsProblem,
+          parsonsMaxScore: parsonsMaxScore,
         }),
       });
       console.log(response);
@@ -95,10 +111,21 @@ const ExamControls = () => {
         setLoading(false);
         navigate("/dashboard", { state: { success: true, message: "Exam created successfully!" } });
       } else {
-        console.error("Failed to save questions and marking schemes");
+        // Try to get the error message from the response
+        let errorMessage = "Failed to save questions and marking schemes.";
+        try {
+          const errorData = await response.json();
+          if (errorData.message) {
+            errorMessage = errorData.message;
+          }
+        } catch (e) {
+          // If we can't parse the error response, use the default message
+        }
+        
+        console.error("Failed to save questions and marking schemes:", errorMessage);
         toast({
           title: "Error",
-          description: "Failed to save questions and marking schemes.",
+          description: errorMessage,
           type: "error",
         });
         setLoading(false);

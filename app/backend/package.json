@@ -4,10 +4,14 @@
   "version": "2.0.1",
   "description": "Node.js Hello world app using docker features for easy docker compose local dev and solid production defaults",
   "author": "Bret Fisher <bret@bretfisher.com>",
-  "main": "src/index.js",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "start-watch": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs src/index.js --inspect=0.0.0.0:9229",
+    "build": "tsc && tsc-alias",
+    "start": "node dist/index.js",
+    "start:ts": "ts-node src/index.ts",
+    "dev": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs --ext ts,js --exec \"ts-node src/index.ts\" --inspect=0.0.0.0:9229",
+    "dev-wait-debugger": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs --ext ts,js --exec \"ts-node src/index.ts\" --inspect-brk=0.0.0.0:9229",
+    "start-watch": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs --ext ts,js --exec \"ts-node src/index.ts\" --inspect=0.0.0.0:9229",
     "start-wait-debuger": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs src/index.js --inspect-brk=0.0.0.0:9229",
     "test": "npx jest --config=jest.backend.config.js",
     "test-watch": "nodemon --watch src --ignore src/assets --ignore /code/omr/inputs --exec \"npm test\""
@@ -44,10 +48,17 @@
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
+    "@types/jsonwebtoken": "^9.0.10",
+    "@types/node": "^24.2.0",
     "chai": "^4.3.7",
     "cross-env": "^7.0.2",
     "jest": "^27.5.1",
     "nodemon": "^2.0.4",
-    "supertest": "^6.3.4"
+    "supertest": "^6.3.4",
+    "ts-node": "^10.9.2",
+    "tsc-alias": "^1.8.16",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.2"
   }
 }

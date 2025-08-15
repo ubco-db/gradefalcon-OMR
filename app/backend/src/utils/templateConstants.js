@@ -42,6 +42,30 @@ const JSON_TEMPLATE_CONSTANTS = {
         labelsGap: 36.5
     }
   },
+
+  // Parsons problem area template (MVP - single section for dynamic positions)
+  generateParsonsSection: function(positions = 4) {
+    return {
+      fieldBlocks: {
+        ParsonsSection: {
+          origin: [449, 679],
+          labelsGap: 36.5,
+          bubblesGap: 47.2,
+          fieldLabels: [`pos1..${positions}`],
+          bubbleFieldType: "CUSTOM_PARSONS_DIGIT",
+          fieldDetectionType: "BUBBLES_THRESHOLD"
+        }
+      },
+      bubbleDimensions: [23, 23],
+      templateDimensions: [1095, 1485],
+      customBubbleFieldTypes: {
+        CUSTOM_PARSONS_DIGIT: {
+          direction: "horizontal",
+          bubbleValues: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"]
+        }
+      }
+    };
+  },
   
   //customBubbleFieldTypes
   presetCustomBubbleFieldTypes: {
@@ -51,6 +75,10 @@ const JSON_TEMPLATE_CONSTANTS = {
     },
     CUSTOM_WIDE: {
       bubbleValues: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J"],
+      direction: "horizontal",
+    },
+    CUSTOM_PARSONS_DIGIT: {
+      bubbleValues: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
       direction: "horizontal",
     }
   },
@@ -67,6 +95,7 @@ const JSON_TEMPLATE_CONSTANTS = {
     TF: "CUSTOM_TF",
     GRID: "CUSTOM_GRID",
     MCQ10: "CUSTOM_WIDE",
+    PARSONS: "CUSTOM_PARSONS_DIGIT",
     // More mappings can be added as needed
   },
   
@@ -187,6 +216,43 @@ const LATEX_COMMANDS = {
       \\end{minipage}%
     }
   `,
+
+  // Parsons problem area template - dedicated section on page 2 with multi-digit support
+  generateParsonsAreaTemplate: function(positions = 4) {
+    const positionLabels = ['1st', '2nd', '3rd', '4th', '5th', '6th', '7th', '8th', '9th', '10th',
+                           '11th', '12th', '13th', '14th', '15th', '16th', '17th', '18th', '19th', '20th'];
+    
+    let tableRows = '';
+    for (let i = 0; i < positions && i < 20; i++) {
+      const isLast = i === positions - 1;
+      const lineBreak = isLast ? '' : '\\\\[0.08in]';
+      
+      // Simple format: one set of 0-9 per row (MVP) with better spacing
+      tableRows += `                \\textbf{${positionLabels[i]}} & \\cir{0} & \\cir{1} & \\cir{2} & \\cir{3} & \\cir{4} & \\cir{5} & \\cir{6} & \\cir{7} & \\cir{8} & \\cir{9} ${lineBreak}\n`;
+    }
+    
+    return `
+    % Place Parsons problem area as dedicated section on page 2
+    \\AddToShipoutPictureBG{%
+      \\ifnum\\value{page}=2
+        \\AtPageUpperLeft{%
+          \\put(0in,-5in){%
+            \\begin{minipage}{8.5in}%
+              \\begin{center}
+              \\Large{\\textbf{Parsons Problem - Code Ordering}}\\\\[0.1in]
+              \\small{\\textit{Fill bubbles for item numbers in order. Multi-digit: fill multiple bubbles per row.}}\\\\
+              \\small{\\textit{Example: Item 15 = fill bubbles "1" and "5" in same row}}\\\\[0.2in]
+              \\begin{tabular}{p{1.5in} c c c c c c c c c c}
+                \\textbf{Position} & 0 & 1 & 2 & 3 & 4 & 5 & 6 & 7 & 8 & 9 \\\\[0.1in]
+${tableRows}              \\end{tabular}
+              \\end{center}
+            \\end{minipage}%
+          }%
+        }%
+      \\fi
+    }%
+  `;
+  },
   
   // Define new option placement command
   placeQuestionAtCommand: `

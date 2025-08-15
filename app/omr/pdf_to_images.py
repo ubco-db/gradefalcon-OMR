@@ -157,9 +157,12 @@ def correct_perspective(image, corners, target_width=2190, target_height=2970):
     return Image.fromarray(cv2.cvtColor(corrected_image, cv2.COLOR_BGR2RGB))
 
 
-def process_image(image):
+def process_image(image, is_custom=False):
     """
     Process single image: detect orientation, page number, correct perspective, resize
+    Args:
+        image: PIL Image object
+        is_custom: Boolean indicating if this is a custom template (affects processing logic)
     Returns (processed image, orientation, page number)
     """
     width, height = image.size
@@ -169,7 +172,7 @@ def process_image(image):
     
     # analyze orientation and page number
     orientation, page_number = analyze_orientation_and_page(qr_codes, width, height)
-    
+    print("FLASK: Process image: ")
     # if image is inverted, flip it first
     if orientation == -1:
         image = top_down_invert(image)
@@ -191,10 +194,13 @@ def top_down_invert(image):
     """Flip image 180 degrees"""
     return image.rotate(180)
 
-def validate_and_split_images(images):
+def validate_and_split_images(images, is_custom=False):
     """
     Validate image order, split double-page images
     Apply perspective correction and standardization to each image
+    Args:
+        images: List of PIL Image objects
+        is_custom: Boolean indicating if this is a custom template
     """
     if len(images) % 2 != 0:
         raise ValueError("Invalid number of pages: Each PDF must contain an even number of pages")
@@ -203,8 +209,8 @@ def validate_and_split_images(images):
     
     for i in range(0, len(images), 2):
         # process two consecutive pages
-        corrected_img1, orientation1, page_num1 = process_image(images[i])
-        corrected_img2, orientation2, page_num2 = process_image(images[i + 1])
+        corrected_img1, orientation1, page_num1 = process_image(images[i], is_custom)
+        corrected_img2, orientation2, page_num2 = process_image(images[i + 1], is_custom)
         
         # if we cannot determine the page number
         if page_num1 == 0 and page_num2 == 0:
@@ -259,17 +265,21 @@ def pdf_to_images(input_dir, output_dir, dpi=300, double_pages=False, is_custom=
                                 
                                 # process images: correct perspective, resize
                                 if is_custom:
-                                    processed_images = validate_and_split_images(images)
+                                    processed_images = validate_and_split_images(images, is_custom)
                                 else:
                                     processed_images = images
                                 
+                                print(f"DEBUG: About to process {len(processed_images)} images")
                                 for i, image in enumerate(processed_images):
                                     output_filename = f"{os.path.splitext(filename)[0]}_page_{i//2 + 1}.png"
+                                    print(f"DEBUG: Processing image {i}, filename: {output_filename}, i%2={i%2}")
                                     if i % 2 == 0:
                                         output_path = os.path.join(page_1_dir, output_filename)
+                                        print(f"DEBUG: Saving to page_1: {output_path}")
                                         image.save(output_path, "PNG")
                                     else:
                                         output_path = os.path.join(page_2_dir, output_filename)
+                                        print(f"DEBUG: Saving to page_2: {output_path}")
                                         image.save(output_path, "PNG")
                                         
                                 results["processed_files"].append(filename)

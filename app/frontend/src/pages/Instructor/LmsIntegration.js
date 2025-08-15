@@ -116,15 +116,26 @@ const LmsIntegration = () => {
 
   const handleValidate = async () => {
     setLoading(true);
+    setValidation(null); // Clear previous validation
+    
     const result = await validateClassLmsIntegration(classId);
     
     if (result.success) {
       setValidation(result.data);
-      toast({
-        title: result.data.valid ? "Success" : "Error",
-        description: result.data.valid ? "Integration is valid" : result.data.error,
-        variant: result.data.valid ? "default" : "destructive"
-      });
+      
+      if (result.data.valid) {
+        toast({
+          title: "Validation Successful",
+          description: result.data.message || "Integration is working properly",
+          variant: "default"
+        });
+      } else {
+        toast({
+          title: "Validation Failed",
+          description: result.data.error,
+          variant: "destructive"
+        });
+      }
     } else {
       toast({
         title: "Error",
@@ -278,12 +289,46 @@ const LmsIntegration = () => {
                     <span>Course ID: {integration.lmsCourseId}</span>
                   </div>
                   {validation && (
-                    <Alert>
-                      <AlertDescription>
-                        Validation Status: {validation.valid ? '✅ Valid' : '❌ Invalid'}
-                        {validation.error && ` - ${validation.error}`}
-                      </AlertDescription>
-                    </Alert>
+                    <div className="space-y-3">
+                      <Alert className={validation.valid ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'}>
+                        <AlertDescription>
+                          <div className="space-y-2">
+                            <div className="font-medium">
+                              Validation Status: {validation.valid ? 'Valid' : 'Invalid'}
+                            </div>
+                            {validation.message && (
+                              <div className="text-sm text-gray-700">
+                                {validation.message}
+                              </div>
+                            )}
+                            {validation.error && (
+                              <div className="text-sm text-red-700">
+                                {validation.error}
+                              </div>
+                            )}
+                            {validation.details && (
+                              <div className="text-sm text-gray-600 space-y-1">
+                                {validation.details.coursesCount && (
+                                  <div>- Found {validation.details.coursesCount} accessible courses</div>
+                                )}
+                                {validation.details.studentsCount !== undefined && (
+                                  <div>- Found {validation.details.studentsCount} students in configured course</div>
+                                )}
+                                {validation.details.targetCourse && (
+                                  <div>- Target course: "{validation.details.targetCourse.name}"</div>
+                                )}
+                                {validation.details.availableCourses && validation.details.availableCourses.length > 0 && (
+                                  <div>
+                                    - Available courses: {validation.details.availableCourses.map(c => c.name).join(', ')}
+                                    {validation.details.coursesCount > validation.details.availableCourses.length && '...'}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </AlertDescription>
+                      </Alert>
+                    </div>
                   )}
                 </div>
               ) : (

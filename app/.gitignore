@@ -1,6 +1,7 @@
 node_modules
 .env
 .env.docker
+.env.prod
 .DS_Store
 /backend/test-output
 /backend/src/assets/custom
@@ -9,3 +10,4 @@ node_modules
 # Python bytecode
 *.pyc
 __pycache__/
+/backend/*.tsbuildinfo

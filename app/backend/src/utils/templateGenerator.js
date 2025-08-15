@@ -195,6 +195,15 @@ function calculateQuestionDistribution(questions, options, layoutParams) {
           typeInfo.typeCommand = `\\tfOptions{QNUM_PLACEHOLDER}`;
           typeInfo.optionType = 'tfOptions';
           typeInfo.cmdType = 'tfOptions';
+        } else if (questionType.startsWith('PARSONS')) {
+          // Parsons problem questions - each position needs 2 digits (tens + units)
+          const positions = parseInt(questionType.substring(7)) || 4; // Default 4 positions
+          typeInfo.width = columnsPerPage; // Full width for multi-digit layout
+          typeInfo.height = positions; // Multiple rows for multiple positions
+          typeInfo.isWide = true;
+          typeInfo.typeCommand = `\\parsonsOptions{Pos QNUM_PLACEHOLDER}{QNUM_PLACEHOLDER}`;
+          typeInfo.optionType = `parsonsOptions_${positions}`;
+          typeInfo.cmdType = 'parsonsOptions';
         }
         // Remove grid question options
       }
@@ -568,9 +577,10 @@ function calculateQuestionDistribution(questions, options, layoutParams) {
  * @param {string} courseId - course id
  * @param {string} examTitle - exam title
  * @param {string} classId - class id
+ * @param {Object} parsonsConfig - Parsons problem configuration (optional)
  * @returns {string} - LaTeX document content
  */
-async function generateLatexDocument(structuredPositions, usedCommandTypes, courseId, examTitle, classId) {
+async function generateLatexDocument(structuredPositions, usedCommandTypes, courseId, examTitle, classId, parsonsConfig = null) {
   // Get total question count from structuredPositions
   const questionsCount = structuredPositions.questionCount;
   
@@ -587,10 +597,21 @@ async function generateLatexDocument(structuredPositions, usedCommandTypes, cour
     'METADATA_PLACEHOLDER', 
     JSON.stringify(metadata).replace(/[&%$#_{}]/g, '\\$&')
   );
+
+  // Generate Parsons problem area if provided - always on page 2
+  let parsonsCode = '';
+  if (parsonsConfig) {
+    parsonsCode = LATEX_COMMANDS.generateParsonsAreaTemplate(parsonsConfig.positions);
+  }
   
   // Collect all page numbers from structuredPositions
   const allPages = new Set(Object.keys(structuredPositions.pages).map(Number));
-  const totalPages = allPages.size > 0 ? Math.max(...allPages) : 1;
+  let totalPages = allPages.size > 0 ? Math.max(...allPages) : 1;
+  
+  // If Parsons problem is included, ensure at least 2 pages
+  if (parsonsConfig && totalPages < 2) {
+    totalPages = 2;
+  }
   
   // Generate LaTeX commands using structuredPositions
   const latexCommands = [];
@@ -616,6 +637,8 @@ async function generateLatexDocument(structuredPositions, usedCommandTypes, cour
         } else if (block.type === 'wideOptions') {
           const optionCount = block.optionType?.split('_')[1] || 9;
           typeCommand = `\\wideOptions{${optionCount}}{${question.qnum}}`;
+        } else if (block.type === 'parsonsOptions') {
+          typeCommand = `\\parsonsOptions{Pos ${question.qnum}}{${question.qnum}}`;
         }
         
         // Use shared coordinate calculation function to calculate coordinates
@@ -653,9 +676,11 @@ async function generateLatexDocument(structuredPositions, usedCommandTypes, cour
     ${usedCommandTypes.has('tfOptions') ? LATEX_COMMANDS.tfOptionsCommand : ''}
     ${usedCommandTypes.has('gridOptions') ? LATEX_COMMANDS.gridOptionsCommand : ''}
     ${usedCommandTypes.has('wideOptions') ? LATEX_COMMANDS.wideOptionsCommand : ''}
+    ${usedCommandTypes.has('parsonsOptions') ? LATEX_COMMANDS.parsonsOptionsCommand : ''}
     ${usedCommandTypes.has('placeQuestionAt') ? LATEX_COMMANDS.placeQuestionAtCommand : ''}
     ${LATEX_COMMANDS.cornerMarkersCode}
     ${studentIdCode}
+    ${parsonsCode}
     ${gridLayoutCode}
     
     \\begin{document}
@@ -685,9 +710,10 @@ async function generateLatexDocument(structuredPositions, usedCommandTypes, cour
  * @param {string} examTitle - exam title
  * @param {string} classId - class id
  * @param {Object} structuredPositions - Structured position information
+ * @param {Object} parsonsConfig - Parsons problem configuration (optional)
  * @returns {object} - JSON template object
  */
-async function generateCustomJsonTemplate(questions, courseId, examTitle, classId, structuredPositions) {
+async function generateCustomJsonTemplate(questions, courseId, examTitle, classId, structuredPositions, parsonsConfig = null) {
   const { columnsPerPage, rowsPerPage } = LAYOUT_PARAMS;
   
   // create combined template object
@@ -703,7 +729,12 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
 
   // Get all page numbers
   const pageNumbers = Object.keys(structuredPositions.pages).map(Number);
-  const pages = Math.max(...pageNumbers);
+  let pages = pageNumbers.length > 0 ? Math.max(...pageNumbers) : 1;
+  
+  // If Parsons problem is included, ensure at least 2 pages
+  if (parsonsConfig && pages < 2) {
+    pages = 2;
+  }
   
   // Create template for each page
   for (let page = 1; page <= pages; page++) {
@@ -719,6 +750,18 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
       template.fieldBlocks = {
         StudentID: JSON.parse(JSON.stringify(JSON_TEMPLATE_CONSTANTS.studentIdSection.fieldBlock))
       };
+      
+      // Parsons problems are now handled on page 2 only
+    } else if (page === 2 && parsonsConfig) {
+      // Page 2 with Parsons problem - use complete structure
+      const parsonsSection = JSON_TEMPLATE_CONSTANTS.generateParsonsSection(parsonsConfig.positions);
+      
+      // Use the complete structure from generateParsonsSection
+      template.customLabels = {};
+      template.customBubbleFieldTypes = parsonsSection.customBubbleFieldTypes;
+      template.fieldBlocks = parsonsSection.fieldBlocks;
+      template.bubbleDimensions = parsonsSection.bubbleDimensions;
+      template.templateDimensions = parsonsSection.templateDimensions;
     } else {
       template.customBubbleFieldTypes = {}; // Ensure other pages initialize with empty object
       template.customLabels = {};
@@ -770,6 +813,8 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
             blockType = `MCQ${blockData.optionCount || 5}`;
           } else if (!blockType && blockData.type === 'tfOptions') {
             blockType = 'TF';
+          } else if (!blockType && blockData.type === 'parsonsOptions') {
+            blockType = 'PARSONS';
           }
           
           // Convert optionType to actual blockType
@@ -778,6 +823,8 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
             blockType = `MCQ${optionCount}`;
           } else if (blockType === 'tfOptions') {
             blockType = 'TF';
+          } else if (blockType && blockType.startsWith('parsonsOptions_')) {
+            blockType = 'PARSONS';
           }
           
           // Use getQuestionFieldType to get field type configuration
@@ -790,6 +837,8 @@ async function generateCustomJsonTemplate(questions, courseId, examTitle, classI
             blockPrefix = 'MCQ';
           } else if (blockType === 'TF') {
             blockPrefix = 'TF';
+          } else if (blockType === 'PARSONS') {
+            blockPrefix = 'PARSONS';
           } else {
             blockPrefix = blockType;
           }

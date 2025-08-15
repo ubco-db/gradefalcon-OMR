@@ -7,7 +7,7 @@ services:
       target: development
     command: npm run start-watch
     env_file:
-      - ./backend/.env.docker
+      - ./backend/.env
     environment:
       - DATABASE_DB=root
       - DATABASE_USER=root
@@ -25,9 +25,8 @@ services:
       - ./backend/src/assets:/code/src/assets
       - ./backend/package.json:/code/package.json
       - ./backend/package-lock.json:/code/package-lock.json
-      - back-notused:/opt/app/node_modules
-      - omr-inputs:/code/omr/inputs
-      - omr-outputs:/code/omr/outputs
+      - ./backend/tsconfig.json:/code/tsconfig.json
+
     networks:
       - app-network
     depends_on:
@@ -59,7 +58,7 @@ services:
       - ./frontend/src:/code/src
       - /code/node_modules
     env_file:
-      - ./backend/.env.docker
+      - ./frontend/.env
     networks:
       - app-network
     depends_on:
@@ -107,7 +106,6 @@ networks:
   app-network:
 
 volumes:
-  back-notused:
   db-data:
   omr-inputs:
   omr-outputs:

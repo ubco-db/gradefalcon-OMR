@@ -1,13 +1,14 @@
+import { createServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+
 const app = require("./server");
 const { port } = require("./config");
-const http = require('http');
-const { Server } = require('socket.io');
 
 // Create HTTP server
-const server = http.createServer(app);
+const server = createServer(app);
 
 // Initialize Socket.io
-const io = new Server(server, {
+const io = new SocketIOServer(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"],
@@ -20,13 +21,18 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
+interface SocketData {
+  instructorId?: string;
+  examId?: string;
+}
+
 // Socket.io connection handling
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
   
   // Join instructor-specific room
-  socket.on('join-instructor-room', (data) => {
-    if (data && data.instructorId) {
+  socket.on('join-instructor-room', (data: SocketData) => {
+    if (data?.instructorId) {
       const instructorRoom = `instructor-${data.instructorId}`;
       socket.join(instructorRoom);
       console.log(`Instructor joined room: ${instructorRoom}`);
@@ -36,23 +42,25 @@ io.on('connection', (socket) => {
   });
   
   // Join exam-specific room
-  socket.on('join-exam-room', (data) => {
-    if (data && data.examId) {
+  socket.on('join-exam-room', (data: SocketData) => {
+    if (data?.examId) {
       const roomName = `exam-${data.examId}`;
       socket.join(roomName);
+      console.log(`User joined exam room: ${roomName}`);
     }
   });
   
   // Leave exam-specific room
-  socket.on('leave-exam-room', (data) => {
-    if (data && data.examId) {
+  socket.on('leave-exam-room', (data: SocketData) => {
+    if (data?.examId) {
       const roomName = `exam-${data.examId}`;
       socket.leave(roomName);
+      console.log(`User left exam room: ${roomName}`);
     }
   });
   
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+  socket.on('disconnect', (reason: string) => {
+    console.log(`User disconnected: ${socket.id}, reason: ${reason}`);
   });
 });
 
@@ -60,8 +68,8 @@ io.on('connection', (socket) => {
 app.io = io;
 
 // Start the server
-server.listen(port, function() {
-  console.log("Webserver is ready");
+server.listen(port, () => {
+  console.log(`Webserver is ready on port ${port}`);
 });
 
 //
@@ -74,8 +82,8 @@ server.listen(port, function() {
 // a graceful shutdown of node process
 //
 
-// quit on ctrl-c when running docker in terminal
-process.on("SIGINT", function onSigint() {
+// Handle Docker signals properly
+process.on("SIGINT", () => {
   console.info(
     "Got SIGINT (aka ctrl-c in docker). Graceful shutdown ",
     new Date().toISOString()
@@ -83,8 +91,7 @@ process.on("SIGINT", function onSigint() {
   shutdown();
 });
 
-// quit properly on docker stop
-process.on("SIGTERM", function onSigterm() {
+process.on("SIGTERM", () => {
   console.info(
     "Got SIGTERM (docker container stop). Graceful shutdown ",
     new Date().toISOString()
@@ -92,16 +99,28 @@ process.on("SIGTERM", function onSigterm() {
   shutdown();
 });
 
+// Handle uncaught exceptions
+process.on('uncaughtException', (error: Error) => {
+  console.error('Uncaught Exception:', error);
+  shutdown();
+});
+
+process.on('unhandledRejection', (reason: unknown) => {
+  console.error('Unhandled Rejection:', reason);
+  shutdown();
+});
+
 // shut down server
-function shutdown() {
-  server.close(function onServerClosed(err) {
+const shutdown = (): void => {
+  server.close((err?: Error) => {
     if (err) {
-      console.error(err);
+      console.error('Error during server shutdown:', err);
       process.exit(1);
     }
+    console.log('Server closed successfully');
     process.exit(0);
   });
-}
+};
 //
 // need above in docker container to properly exit
 //

@@ -6,10 +6,10 @@ const checkJwt = jwt({
     cache: true,
     rateLimit: true,
     jwksRequestsPerMinute: 5,
-    jwksUri: `https://${process.env.REACT_APP_AUTH0_DOMAIN}/.well-known/jwks.json`
+    jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`
   }),
-  audience: process.env.REACT_APP_AUTH0_AUDIENCE,
-  issuer: `https://${process.env.REACT_APP_AUTH0_DOMAIN}/`,
+  audience: process.env.AUTH0_AUDIENCE,
+  issuer: `https://${process.env.AUTH0_DOMAIN}/`,
   algorithms: ['RS256']
 });
 
@@ -36,7 +36,7 @@ const errorHandler = (err, req, res, next) => {
 
 const checkRole = (role) => {
   return (req, res, next) => {
-    const roles = req.auth[`${process.env.REACT_APP_AUTH0_MYAPP}/role`] || [];
+    const roles = req.auth[`${process.env.AUTH0_MYAPP}/role`] || [];
     if (!roles.includes(role)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
@@ -46,10 +46,10 @@ const checkRole = (role) => {
 
 const getAuth0ManagementToken = async (req, res) => {
   try {
-    const response = await axios.post(`https://${process.env.REACT_APP_AUTH0_DOMAIN}/oauth/token`, {
-      client_id: process.env.REACT_APP_AUTH0_CLIENT_ID,
-      client_secret: process.env.REACT_APP_AUTH0_CLIENT_SECRET,
-      audience: `https://${process.env.REACT_APP_AUTH0_DOMAIN}/api/v2/`,
+    const response = await axios.post(`https://${process.env.AUTH0_DOMAIN}/oauth/token`, {
+      client_id: process.env.AUTH0_CLIENT_ID,
+      client_secret: process.env.AUTH0_CLIENT_SECRET,
+      audience: `https://${process.env.AUTH0_DOMAIN}/api/v2/`,
       grant_type: 'client_credentials'
     });
 
