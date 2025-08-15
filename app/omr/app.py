@@ -228,6 +228,28 @@ def process_omr(exam_id):
     os.makedirs(input_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
     
+    # Clear previous output results to avoid accumulating results from multiple test runs
+    try:
+        # Clear previous Results directories
+        page1_results_dir = os.path.join(out_dir, "page_1", "Results")
+        if os.path.exists(page1_results_dir):
+            shutil.rmtree(page1_results_dir)
+            app.logger.info(f"Cleared previous page_1 results: {page1_results_dir}")
+        
+        page2_results_dir = os.path.join(out_dir, "page_2", "Results")
+        if os.path.exists(page2_results_dir):
+            shutil.rmtree(page2_results_dir)
+            app.logger.info(f"Cleared previous page_2 results: {page2_results_dir}")
+        
+        # Clear previous student_results.json
+        student_results_path = os.path.join(out_dir, "student_results.json")
+        if os.path.exists(student_results_path):
+            os.remove(student_results_path)
+            app.logger.info(f"Cleared previous student results file: {student_results_path}")
+            
+    except Exception as e:
+        app.logger.error(f"Error clearing previous results: {e}")
+    
     # Set default 30 days expiry time
     set_folder_expiry(exam_id)
     
@@ -325,7 +347,7 @@ def process_results_and_store_images(exam_id, single_choice_only=True, parsons_c
     
     # check if page_1 results file exists
     if not page1_results_file:
-        app.logger.error(f"Results file not found in page_1 directory")
+        app.logger.error(f"Results file not found in page_1 directory: {page1_results_dir}")
         return
     
     # read page_1 data

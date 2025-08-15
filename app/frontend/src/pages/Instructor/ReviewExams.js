@@ -26,17 +26,12 @@ const ReviewExams = () => {
   const { exam_id, examType, numQuestions } = location.state || {};
   const navigate = useNavigate();
   const { toast } = useToast();
-  const [studentIdFilter, setStudentIdFilter] = useState({});
   const [duplicateIds, setDuplicateIds] = useState(new Set());
   const [notFoundIds, setNotFoundIds] = useState(new Set());
-  const [dropdownOpen, setDropdownOpen] = useState({});
   const [deletingIndex, setDeletingIndex] = useState(null);
+  const [searchTerms, setSearchTerms] = useState({}); // Track search terms for each dropdown
+  const searchInputRefs = useRef({}); // Refs for search inputs
 
-  // Log the values to see if they are being received
-  console.log("Received exam_id:", exam_id);
-  console.log("Received examType:", examType);
-  console.log("Received numQuestions:", numQuestions);
-  console.log("Full location.state:", location.state);
 
   // Save current state to localStorage
   const saveStateToStorage = (data) => {
@@ -74,7 +69,6 @@ const ReviewExams = () => {
       throw new Error("Network response was not ok");
     }
     const data = await response.json();
-    console.log("Student scores data with image UUIDs:", data);
     
     // Check for saved state before setting data
     const savedState = getStateFromStorage();
@@ -175,46 +169,44 @@ const ReviewExams = () => {
     setNotFoundIds(notFound);
   }, [studentScores, registeredStudents]);
 
-  const getFilteredStudents = (index, filterValue = "") => {
-    // Start with registered students
+  const getStudentOptions = (index, searchTerm = "") => {
+    // Get StudentIDs assigned to other rows (exclude from options)
+    const usedInOtherRows = new Set();
+    studentScores.forEach((student, idx) => {
+      if (idx !== index && student.StudentID) {
+        usedInOtherRows.add(student.StudentID);
+      }
+    });
+    
+    // Build student options from registered students
     let students = registeredStudents.map(student => ({
-      id: student.student_id,
-      name: student.name,
+      value: student.student_id,
       label: `${student.name} (${student.student_id})`
     }));
     
-    // Add current student ID if not in the list
+    // Include current student ID if not in registered list
     const currentStudentId = studentScores[index]?.StudentID;
-    if (currentStudentId && !students.some(s => s.id === currentStudentId)) {
+    if (currentStudentId && !students.some(s => s.value === currentStudentId)) {
       students.push({
-        id: currentStudentId,
-        name: "Unknown student",
+        value: currentStudentId,
         label: `Unknown student (${currentStudentId})`
       });
     }
     
-    // Filter based on input value
-    if (filterValue) {
-      students = students.filter(student => 
-        student.id.toString().includes(filterValue) || 
-        student.label.toLowerCase().includes(filterValue.toLowerCase())
+    // Filter out students assigned to other rows
+    students = students.filter(student => 
+      student.value === currentStudentId || !usedInOtherRows.has(student.value)
+    );
+    
+    // Apply search filter if provided
+    if (searchTerm) {
+      students = students.filter(student =>
+        student.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        student.value.toString().includes(searchTerm)
       );
     }
     
     return students.sort((a, b) => a.label.localeCompare(b.label));
-  };
-  
-  // Get display text for the current student
-  const getStudentDisplayText = (index) => {
-    const student = studentScores[index];
-    if (!student || !student.StudentID) return "";
-    
-    const registeredStudent = registeredStudents.find(s => s.student_id === student.StudentID);
-    if (registeredStudent) {
-      return `${registeredStudent.name} (${registeredStudent.student_id})`;
-    } else {
-      return `Unknown student (${student.StudentID})`;
-    }
   };
 
   const handleViewClick = (studentId, student_name, grade, chosen_answers, image_uuids, has_multiple_answers) => {
@@ -259,25 +251,8 @@ const ReviewExams = () => {
       };
       return newScores;
     });
-    
-    // Reset filter and close dropdown after selection
-    setStudentIdFilter(prev => ({...prev, [index]: ""}));
-    setDropdownOpen(prev => ({...prev, [index]: false}));
   };
 
-  const handleFilterChange = (value, index) => {
-    setStudentIdFilter(prev => ({
-      ...prev,
-      [index]: value
-    }));
-  };
-  
-  const toggleDropdown = (index, isOpen) => {
-    setDropdownOpen(prev => ({
-      ...prev,
-      [index]: isOpen
-    }));
-  };
   
   const handleDeleteRow = (index) => {
     setDeletingIndex(index);
@@ -427,40 +402,40 @@ const ReviewExams = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <div className={`relative ${duplicateIds.has(student.StudentID) || notFoundIds.has(student.StudentID) ? 'border-2 border-red-500 rounded' : ''}`}>
-                        <div className="relative">
-                          <Input
-                            type="text"
-                            placeholder="Search student ID..."
-                            value={dropdownOpen[index] ? (studentIdFilter[index] || "") : getStudentDisplayText(index)}
-                            onChange={(e) => handleFilterChange(e.target.value, index)}
-                            onFocus={() => {
-                              toggleDropdown(index, true);
-                              // Reset filter text when focusing, but only if not already typing
-                              if (!studentIdFilter[index]) {
-                                setStudentIdFilter(prev => ({...prev, [index]: ""}));
-                              }
-                            }}
-                            className="w-full"
-                          />
-                          
-                          {dropdownOpen[index] && (
-                            <div className="absolute z-10 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
-                              {getFilteredStudents(index, studentIdFilter[index] || "").map((student) => (
-                                <div 
-                                  key={student.id}
-                                  className="px-4 py-2 hover:bg-gray-100 cursor-pointer"
-                                  onClick={() => handleStudentIdChange(student.id, index)}
-                                >
-                                  {student.label}
-                                </div>
-                              ))}
-                              {getFilteredStudents(index, studentIdFilter[index] || "").length === 0 && (
-                                <div className="px-4 py-2 text-gray-500">No students found</div>
-                              )}
+                      <div className={`${duplicateIds.has(student.StudentID) || notFoundIds.has(student.StudentID) ? 'border-2 border-red-500 rounded p-1' : ''}`}>
+                        <Select value={student.StudentID} onValueChange={(value) => handleStudentIdChange(value, index)}>
+                          <SelectTrigger className="w-full">
+                            <SelectValue placeholder="Select student..." />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-60 overflow-y-auto z-50">
+                            <div className="flex items-center px-3 pb-2">
+                              <Input
+                                ref={(el) => {
+                                  searchInputRefs.current[index] = el;
+                                }}
+                                placeholder="Search students..."
+                                className="h-8"
+                                value={searchTerms[index] || ""}
+                                onChange={(e) => {
+                                  setSearchTerms(prev => ({
+                                    ...prev,
+                                    [index]: e.target.value
+                                  }));
+                                  // Maintain focus after state update
+                                  setTimeout(() => {
+                                    searchInputRefs.current[index]?.focus();
+                                  }, 0);
+                                }}
+                                autoFocus
+                              />
                             </div>
-                          )}
-                        </div>
+                            {getStudentOptions(index, searchTerms[index]).map((studentOption) => (
+                              <SelectItem key={studentOption.value} value={studentOption.value}>
+                                {studentOption.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                         {duplicateIds.has(student.StudentID) && (
                           <div className="text-xs text-red-500 mt-1">Duplicate student ID</div>
                         )}
@@ -519,14 +494,6 @@ const ReviewExams = () => {
       <Button onClick={saveResults} className="mt-4 self-end">
         Save Results
       </Button>
-      
-      {/* Click outside to close dropdown */}
-      {Object.values(dropdownOpen).some(value => value) && (
-        <div 
-          className="fixed inset-0 z-0" 
-          onClick={() => setDropdownOpen({})}
-        />
-      )}
     </main>
   );
 };
