@@ -239,7 +239,7 @@ const LATEX_COMMANDS = {
           \\put(0in,-5in){%
             \\begin{minipage}{8.5in}%
               \\begin{center}
-              \\Large{\\textbf{Parsons Problem - Code Ordering}}\\\\[0.1in]
+              \\Large{\\textbf{Parsons Problem - Ordering Problem}}\\\\[0.1in]
               \\small{\\textit{Fill bubbles for item numbers in order. Multi-digit: fill multiple bubbles per row.}}\\\\
               \\small{\\textit{Example: Item 15 = fill bubbles "1" and "5" in same row}}\\\\[0.2in]
               \\begin{tabular}{p{1.5in} c c c c c c c c c c}
