@@ -162,11 +162,11 @@ const ClassManagement = () => {
         <Card className="bg-white border rounded">
           <CardHeader className="flex justify-between px-6 py-4">
             <div>
-              <CardTitle className="mb-2">Grades</CardTitle>
+              <CardTitle className="mb-2">Grades for {classData.studentInfo?.length || 0} students</CardTitle>
             </div>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-80">
+            <ScrollArea className="h-[70vh]">
               <Table>
                 <TableHeader>
                   <TableRow>

@@ -5,11 +5,11 @@ import "../css/App.css";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { useToast } from "../components/ui/use-toast";
-import { ToastProvider, ToastViewport } from "../components/ui/toast";
 import { Label } from "../components/ui/label";
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "../components/ui/table";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../components/ui/card";
 import { useAuth0 } from "@auth0/auth0-react"; // Import Auth0
+import { ScrollArea } from "./ui/scroll-area";
 
 const NewClassForm = ({ setIsDialogOpen }) => {
   const { getAccessTokenSilently } = useAuth0(); // Get the token
@@ -82,7 +82,7 @@ const NewClassForm = ({ setIsDialogOpen }) => {
             return;
           }
 
-          setCol(columns);
+          setCol(columns.map((col) => col.split(" ").map((word) => word.charAt(0).toUpperCase() + word.slice(1)).join(" "))); // Capitalize column headers
           setVal(parsedData);
         },
         header: false,
@@ -152,96 +152,93 @@ const NewClassForm = ({ setIsDialogOpen }) => {
   };
 
   return (
-    <ToastProvider>
-      <form className="flex flex-col">
-        <Card className="p-3 flex-grow">
-          <CardHeader>
-            <CardTitle className="text-lg">Create New Class</CardTitle>
-            <CardDescription className="text-sm">
-              Enter the details for the new class and upload the student list.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-3">
-              <Label htmlFor="course-name" className="block text-sm font-medium text-gray-700">
-                Course Name:
-              </Label>
-              <Input
-                type="text"
-                id="course-name"
-                data-testid="courseName"
-                className="input-field mt-1 block w-full"
-                value={courseName}
-                onChange={(e) => setCourseName(e.target.value)}
+    <form className="flex flex-col">
+      <Card className="flex flex-1 flex-col p-3">
+        <CardHeader>
+          <CardTitle className="text-lg">Create New Class</CardTitle>
+          <CardDescription className="text-sm">
+            Enter the details for the new class and upload the student list.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-3">
+            <Label htmlFor="course-name" className="block text-sm font-medium text-gray-700">
+              Course Name:
+            </Label>
+            <Input
+              type="text"
+              id="course-name"
+              data-testid="courseName"
+              className="input-field mt-1 block w-full"
+              value={courseName}
+              onChange={(e) => setCourseName(e.target.value)}
+            />
+          </div>
+          <div className="mb-3">
+            <Label htmlFor="course-id" className="block text-sm font-medium text-gray-700">
+              Course ID:
+            </Label>
+            <Input
+              type="text"
+              id="course-id"
+              data-testid="courseId"
+              className="input-field mt-1 block w-full"
+              value={courseId}
+              onChange={(e) => setCourseId(e.target.value)}
+            />
+          </div>
+          <p className="mb-3 text-sm">
+            Import a CSV file containing the student names, their student IDs, and student emails in your class.
+          </p>
+          <div className="file-input-container mb-3">
+            <label className="file-input-button text-sm cursor-pointer inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm bg-secondary text-secondary-foreground hover:bg-secondary/80">
+              Choose File
+              <input
+                type="file"
+                accept=".csv"
+                ref={fileInputRef}
+                data-testid="csvFile"
+                className="hidden"
+                onChange={handleFileChange}
               />
-            </div>
-            <div className="mb-3">
-              <Label htmlFor="course-id" className="block text-sm font-medium text-gray-700">
-                Course ID:
-              </Label>
-              <Input
-                type="text"
-                id="course-id"
-                data-testid="courseId"
-                className="input-field mt-1 block w-full"
-                value={courseId}
-                onChange={(e) => setCourseId(e.target.value)}
-              />
-            </div>
-            <p className="mb-3 text-sm">
-              Import a CSV file containing the student names, their student IDs, and student emails in your class.
-            </p>
-            <div className="file-input-container mb-3">
-              <label className="file-input-button text-sm cursor-pointer inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md shadow-sm bg-secondary text-secondary-foreground hover:bg-secondary/80">
-                Choose File
-                <input
-                  type="file"
-                  accept=".csv"
-                  ref={fileInputRef}
-                  data-testid="csvFile"
-                  className="hidden"
-                  onChange={handleFileChange}
-                />
-              </label>
-              <span className="file-input-label text-sm ml-4">{file ? file.name : "No file selected"}</span>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleFileUpload} data-testid="uploadButton">
-                <span>Import</span>
-              </Button>
-            </div>
-            {col.length > 0 && (
-              <div className="mt-3 overflow-auto flex-grow">
-                <Table className="w-full border-collapse text-sm">
-                  <TableHead>
-                    <TableRow>
-                      {col.map((col, i) => (
-                        <TableCell key={i} className="border-b py-2 text-left">
-                          {col}
+            </label>
+            <span className="file-input-label text-sm ml-4">{file ? file.name : "No file selected"}</span>
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleFileUpload} data-testid="uploadButton">
+              <span>Import</span>
+            </Button>
+          </div>
+          {col.length > 0 && (
+            <ScrollArea className="h-80">
+              <Table className="w-full text-sm table-fixed max-h-60">
+                <TableHeader>
+                  <TableRow>
+                    {col.map((col, i) => (
+                      <TableHead key={i} className="border-b py-2 w-1/3">
+                        {col}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody data-testid="TableBody">
+                  {val.map((row, i) => (
+                    <TableRow key={i}>
+                      {row.map((cell, j) => (
+                        <TableCell key={j} className="border-b py-2 w-1/3">
+                          {cell}
                         </TableCell>
                       ))}
                     </TableRow>
-                  </TableHead>
-                  <TableBody data-testid="TableBody">
-                    {val.map((row, i) => (
-                      <TableRow key={i}>
-                        {row.map((cell, j) => (
-                          <TableCell key={j} className="border-b py-2">
-                            {cell}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        <ToastViewport />
+                  ))}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+            )}
+          </CardContent>
+        </Card>
       </form>
-    </ToastProvider>
-  );
+   );
 };
 
 export default NewClassForm;

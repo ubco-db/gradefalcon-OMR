@@ -6,7 +6,7 @@ const clientId = process.env.AUTH0_M2M_CLIENT_ID;
 const clientSecret = process.env.AUTH0_M2M_CLIENT_SECRET
 
 const audience = `https://${auth0Domain}/api/v2/`; // Auth0 Management API audience
-
+// TODO: refactor in ts and reuse the auth0.service.ts
 // Rate limiting utility functions
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -51,13 +51,30 @@ const makeAuth0Request = async (requestFn, maxRetries = 3) => {
 };
 
 // Generates a random password with a specified character set
+// make sure it satisty the password policy
+// the policy could be changed on auth0 dashboard
+// Database Connections-> Username-Password-Authentication -> Password -> policies
 const generateRandomPassword = () => {
-  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+";
-  let password = "";
-  for (let i = 0; i < 12; i++) {
-    password += chars[Math.floor(Math.random() * chars.length)];
+  const lowerCase = 'abcdefghijklmnopqrstuvwxyz';
+  const upperCase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const numbers = '0123456789';
+  const specialChars = '!@#$%^&*';
+  
+  // Ensure at least one character from each required category
+  let password = '';
+  password += lowerCase.charAt(Math.floor(Math.random() * lowerCase.length));
+  password += upperCase.charAt(Math.floor(Math.random() * upperCase.length));
+  password += numbers.charAt(Math.floor(Math.random() * numbers.length));
+  password += specialChars.charAt(Math.floor(Math.random() * specialChars.length));
+  
+  // Fill remaining characters (minimum 8 total, we'll use 12 for security)
+  const allChars = lowerCase + upperCase + numbers + specialChars;
+  for (let i = password.length; i < 12; i++) {
+    password += allChars.charAt(Math.floor(Math.random() * allChars.length));
   }
-  return password;
+  
+  // Shuffle the password to avoid predictable patterns
+  return password.split('').sort(() => Math.random() - 0.5).join('');
 };
 
 // Retrieves an access token for the Auth0 Management API

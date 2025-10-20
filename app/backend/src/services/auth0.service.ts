@@ -49,7 +49,7 @@ export class Auth0Service {
 
   /**
    * Creates a new user in Auth0
-   * 
+   *
    * @param email - User's email address
    * @param name - User's full name
    * @param connection - Auth0 connection (defaults to 'Username-Password-Authentication')
@@ -205,7 +205,7 @@ export class Auth0Service {
     try {
       // Check current roles
       const currentRoles = await this.getUserRolesById(auth0Id);
-      
+
       // If user already has roles, don't modify them
       if (currentRoles.length > 0) {
         console.log(`User ${auth0Id} already has roles:`, currentRoles.map((r: Auth0UserRole) => r.name));
@@ -252,29 +252,50 @@ export class Auth0Service {
     }
   }
 
+  // the policy could be changed on auth0 dashboard
+  // Database Connections-> Username-Password-Authentication -> Password -> policies
   /**
-   * Generates a temporary password for new users
+   * Generates a temporary password for new users that meets Auth0 password policy requirements:
+   * - Special characters (!@#$%^&*)
+   * - Lower case (a-z), upper case (A-Z) and numbers (0-9)
+   * - Must have minimum characters in length (typically 8+)
+   * - Non-empty password required
+   *
    * Users will need to reset this password on first login
    */
   private generateTemporaryPassword(): string {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
+    const lowerCase = 'abcdefghijklmnopqrstuvwxyz';
+    const upperCase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const numbers = '0123456789';
+    const specialChars = '!@#$%^&*';
+
+    // Ensure at least one character from each required category
     let password = '';
-    for (let i = 0; i < 12; i++) {
-      password += chars.charAt(Math.floor(Math.random() * chars.length));
+    password += lowerCase.charAt(Math.floor(Math.random() * lowerCase.length));
+    password += upperCase.charAt(Math.floor(Math.random() * upperCase.length));
+    password += numbers.charAt(Math.floor(Math.random() * numbers.length));
+    password += specialChars.charAt(Math.floor(Math.random() * specialChars.length));
+
+    // Fill remaining characters (minimum 8 total, we'll use 12 for security)
+    const allChars = lowerCase + upperCase + numbers + specialChars;
+    for (let i = password.length; i < 12; i++) {
+      password += allChars.charAt(Math.floor(Math.random() * allChars.length));
     }
-    return password;
+
+    // Shuffle the password to avoid predictable patterns
+    return password.split('').sort(() => Math.random() - 0.5).join('');
   }
 
  /**
  * Retrieves the roles assigned to a user by their Auth0 ID from the Auth0 Management API.
- * 
+ *
  * @param auth0Id - The Auth0 unique identifier for the user
  * @returns A promise that resolves to an array of user roles, or null if no roles found, user doesn't exist, or an error occurs
  */
 async getUserRoles(auth0Id: string): Promise<UserRole[] | null> {
   try {
     const token = await this.getToken();
-    
+
     const roles = await this.makeAuth0Request(async () => {
       const response = await fetch(
         `https://${process.env.AUTH0_DOMAIN}/api/v2/users/${encodeURIComponent(auth0Id)}/roles`,
@@ -298,7 +319,7 @@ async getUserRoles(auth0Id: string): Promise<UserRole[] | null> {
 
   /**
  * Retrieves a user's basic information by their Auth0 ID from the Auth0 Management API.
- * 
+ *
  * @param auth0Id - The Auth0 unique identifier for the user
  * @returns A promise that resolves to a BaseUser object containing the user's basic information (auth0_id, email, name), or null if the user is not found or required fields are missing
  * @throws {Error} Throws an error if the API request fails or an unexpected error occurs during processing
@@ -316,7 +337,7 @@ async getUserRoles(auth0Id: string): Promise<UserRole[] | null> {
         if (!response.ok) {
           return null;
         }
-        
+
         return await response.json() as Partial<Auth0ManagementUser>;
       });
 
@@ -335,7 +356,7 @@ async getUserRoles(auth0Id: string): Promise<UserRole[] | null> {
     }
   }
 
-  
+
   private async getToken(): Promise<string> {
     if (this.managementToken && Date.now() < this.tokenExpiry) {
       return this.managementToken;

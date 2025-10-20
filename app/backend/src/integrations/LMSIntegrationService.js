@@ -20,8 +20,8 @@ class LMSIntegrationService {
   }
 
   /**
- * @returns {LMSAdapter}
- */
+   * @returns {LMSAdapter}
+   */
   createAdapter(lmsType, accessToken, config = {}) {
     const AdapterClass = this.adapters.get(lmsType);
     if (!AdapterClass) {
@@ -34,13 +34,13 @@ class LMSIntegrationService {
     try {
       if (accessToken === null) {
         const query = `
-          INSERT INTO lms_integrations (class_id, lms_type, lms_course_id, encrypted_access_token)
-          VALUES ($1, $2, $3, (SELECT encrypted_access_token FROM lms_integrations WHERE class_id = $1))
-          ON CONFLICT (class_id)
-          DO UPDATE SET
-            lms_type = EXCLUDED.lms_type,
-            lms_course_id = EXCLUDED.lms_course_id
-          RETURNING integration_id
+        INSERT INTO lms_integrations (class_id, lms_type, lms_course_id, encrypted_access_token)
+        VALUES ($1, $2, $3, (SELECT encrypted_access_token FROM lms_integrations WHERE class_id = $1))
+        ON CONFLICT (class_id)
+        DO UPDATE SET
+        lms_type = EXCLUDED.lms_type,
+        lms_course_id = EXCLUDED.lms_course_id
+        RETURNING integration_id
         `;
         const result = await pool.query(query, [classId, lmsType, lmsCourseId]);
         return result.rows[0].integration_id;
@@ -48,14 +48,14 @@ class LMSIntegrationService {
 
       const encryptedToken = await encrypt(accessToken);
       const query = `
-        INSERT INTO lms_integrations (class_id, lms_type, lms_course_id, encrypted_access_token)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (class_id)
-        DO UPDATE SET
-          lms_type = EXCLUDED.lms_type,
-          lms_course_id = EXCLUDED.lms_course_id,
-          encrypted_access_token = EXCLUDED.encrypted_access_token
-        RETURNING integration_id
+      INSERT INTO lms_integrations (class_id, lms_type, lms_course_id, encrypted_access_token)
+      VALUES ($1, $2, $3, $4)
+      ON CONFLICT (class_id)
+      DO UPDATE SET
+      lms_type = EXCLUDED.lms_type,
+      lms_course_id = EXCLUDED.lms_course_id,
+      encrypted_access_token = EXCLUDED.encrypted_access_token
+      RETURNING integration_id
       `;
       const result = await pool.query(query, [classId, lmsType, lmsCourseId, encryptedToken]);
       return result.rows[0].integration_id;
@@ -67,9 +67,9 @@ class LMSIntegrationService {
   async getClassLmsIntegration(classId) {
     try {
       const query = `
-        SELECT lms_type, lms_course_id, encrypted_access_token
-        FROM lms_integrations
-        WHERE class_id = $1
+      SELECT lms_type, lms_course_id, encrypted_access_token
+      FROM lms_integrations
+      WHERE class_id = $1
       `;
       const result = await pool.query(query, [classId]);
       if (result.rows.length === 0) {
@@ -284,9 +284,9 @@ class LMSIntegrationService {
 
   async _getExamGrades(examId) {
     const examQuery = `
-      SELECT e.exam_id, e.exam_title, e.total_marks, e.class_id
-      FROM exam e
-      WHERE e.exam_id = $1
+    SELECT e.exam_id, e.exam_title, e.total_marks, e.class_id
+    FROM exam e
+    WHERE e.exam_id = $1
     `;
     const examResult = await pool.query(examQuery, [examId]);
     if (examResult.rows.length === 0) {
@@ -296,7 +296,7 @@ class LMSIntegrationService {
     
     // Get the LMS type for this class to join with correct LMS integration
     const integrationQuery = `
-      SELECT lms_type FROM lms_integrations WHERE class_id = $1
+    SELECT lms_type FROM lms_integrations WHERE class_id = $1
     `;
     const integrationResult = await pool.query(integrationQuery, [exam.class_id]);
     if (integrationResult.rows.length === 0) {
@@ -306,11 +306,11 @@ class LMSIntegrationService {
     
     // Updated query to include LMS user ID mapping
     const gradesQuery = `
-      SELECT sr.student_id, s.name, sr.grade, sli.lms_user_id
-      FROM studentResults sr
-      JOIN student s ON sr.student_id = s.student_id
-      LEFT JOIN student_lms_integration sli ON sr.student_id = sli.student_id AND sli.lms_type = $2
-      WHERE sr.exam_id = $1 AND sr.grade IS NOT NULL
+    SELECT sr.student_id, s.name, sr.grade, sli.lms_user_id
+    FROM studentResults sr
+    JOIN student s ON sr.student_id = s.student_id
+    LEFT JOIN student_lms_integration sli ON sr.student_id = sli.student_id AND sli.lms_type = $2
+    WHERE sr.exam_id = $1 AND sr.grade IS NOT NULL
     `;
     const gradesResult = await pool.query(gradesQuery, [examId, lmsType]);
     return {
@@ -348,11 +348,11 @@ class LMSIntegrationService {
     const lmsType = integrationResult.rows[0].lms_type;
 
     const query = `
-      SELECT sr.student_id, s.name, sr.image_uuids, sli.lms_user_id
-      FROM studentResults sr
-      JOIN student s ON sr.student_id = s.student_id
-      LEFT JOIN student_lms_integration sli ON sr.student_id = sli.student_id AND sli.lms_type = $2
-      WHERE sr.exam_id = $1 AND sr.image_uuids IS NOT NULL
+    SELECT sr.student_id, s.name, sr.image_uuids, sli.lms_user_id
+    FROM studentResults sr
+    JOIN student s ON sr.student_id = s.student_id
+    LEFT JOIN student_lms_integration sli ON sr.student_id = sli.student_id AND sli.lms_type = $2
+    WHERE sr.exam_id = $1 AND sr.image_uuids IS NOT NULL
     `;
     const result = await pool.query(query, [examId, lmsType]);
     const submissions = [];
@@ -436,9 +436,9 @@ class LMSIntegrationService {
   async getUserIntegrations(userId) {
     try {
       const query = `
-        SELECT lms_type, created_at, updated_at
-        FROM lms_integrations
-        WHERE user_id = $1
+      SELECT lms_type, created_at, updated_at
+      FROM lms_integrations
+      WHERE user_id = $1
       `;
       const result = await pool.query(query, [userId]);
       return result.rows;
@@ -450,9 +450,9 @@ class LMSIntegrationService {
   async removeClassLmsIntegration(classId) {
     try {
       const query = `
-        DELETE FROM lms_integrations
-        WHERE class_id = $1
-        RETURNING integration_id
+      DELETE FROM lms_integrations
+      WHERE class_id = $1
+      RETURNING integration_id
       `;
       const result = await pool.query(query, [classId]);
       return result.rows.length > 0;
@@ -464,12 +464,12 @@ class LMSIntegrationService {
   async storeExamLmsAssignment(examId, lmsAssignmentId) {
     try {
       const query = `
-        INSERT INTO exam_lms_integrations (exam_id, lms_assignment_id)
-        VALUES ($1, $2)
-        ON CONFLICT (exam_id)
-        DO UPDATE SET
-          lms_assignment_id = EXCLUDED.lms_assignment_id
-        RETURNING integration_id
+      INSERT INTO exam_lms_integrations (exam_id, lms_assignment_id)
+      VALUES ($1, $2)
+      ON CONFLICT (exam_id)
+      DO UPDATE SET
+      lms_assignment_id = EXCLUDED.lms_assignment_id
+      RETURNING integration_id
       `;
       const result = await pool.query(query, [examId, lmsAssignmentId]);
       return result.rows[0].integration_id;
@@ -481,9 +481,9 @@ class LMSIntegrationService {
   async getExamLmsAssignment(examId) {
     try {
       const query = `
-        SELECT lms_assignment_id
-        FROM exam_lms_integrations
-        WHERE exam_id = $1
+      SELECT lms_assignment_id
+      FROM exam_lms_integrations
+      WHERE exam_id = $1
       `;
       const result = await pool.query(query, [examId]);
       if (result.rows.length === 0) {
@@ -500,9 +500,9 @@ class LMSIntegrationService {
   async removeExamLmsAssignment(examId) {
     try {
       const query = `
-        DELETE FROM exam_lms_integrations
-        WHERE exam_id = $1
-        RETURNING integration_id
+      DELETE FROM exam_lms_integrations
+      WHERE exam_id = $1
+      RETURNING integration_id
       `;
       const result = await pool.query(query, [examId]);
       return result.rows.length > 0;
@@ -564,6 +564,24 @@ class LMSIntegrationService {
       }
       const adapter = this.createAdapter(integration.lmsType, integration.accessToken);
       const students = await adapter.getStudents(integration.lmsCourseId);
+      // fix students without email as currently ubc canvas not return it somehow
+      const studentIdsWithoutEmail = students.filter(s => !s.email && s.student_id).map(s => s.student_id);
+      console.log("studentIdsWithoutEmail", studentIdsWithoutEmail);
+      if (studentIdsWithoutEmail.length > 0) {
+        try {
+          // get student where student_id exists in studentIdsWithoutEmail form db
+          const query = 'SELECT student_id, email FROM student WHERE student_id = ANY($1::text[])';
+          const result = await pool.query(query, [studentIdsWithoutEmail]);
+          const emailMap = new Map(result.rows.map(row => [row.student_id, row.email]));
+          for (const student of students) {
+            if (!student.email && student.student_id && emailMap.has(student.student_id)) {
+              student.email = emailMap.get(student.student_id);
+            }
+          }
+        } catch (dbError) {
+          console.warn('Failed to fetch emails from database:', dbError.message);
+        }
+      }
       return students;
     } catch (error) {
       throw new Error(`Failed to get students from LMS: ${error.message}`);
@@ -748,9 +766,9 @@ class LMSIntegrationService {
           // Insert or update LMS integration mapping
           const integrationQuery = {
             text: `INSERT INTO student_lms_integration (student_id, lms_user_id, lms_type) 
-                   VALUES ($1, $2, $3) 
-                   ON CONFLICT (student_id, lms_type) 
-                   DO UPDATE SET lms_user_id = EXCLUDED.lms_user_id`,
+            VALUES ($1, $2, $3) 
+            ON CONFLICT (student_id, lms_type) 
+            DO UPDATE SET lms_user_id = EXCLUDED.lms_user_id`,
             values: [student.student_id, student.lms_user_id, integration.lmsType],
           };
           await client.query(integrationQuery);

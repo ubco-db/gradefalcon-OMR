@@ -21,7 +21,6 @@ import AccountSettings from './pages/Instructor/AccountSettings';
 import Classes from './pages/Instructor/Classes';
 import ClassManagement from './pages/Instructor/ClassManagement';
 import ExamDetails from './pages/Instructor/ExamDetails';
-import NewClass from './pages/Instructor/NewClass';
 import NewExam from './pages/Instructor/NewExam';
 import ExamBoard from './pages/Instructor/Examboard';
 import ExamControls from './pages/Instructor/ExamControls';
@@ -71,7 +70,6 @@ function App() {
           <Route path="/Classes" element={<ProtectedRoute roles={['Instructor']}><Layout><Classes /></Layout></ProtectedRoute>} />
           <Route path="/ClassManagement/:class_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ClassManagement /></Layout></ProtectedRoute>} />
           <Route path="/ExamDetails/:exam_id" element={<ProtectedRoute roles={['Instructor']}><Layout><ExamDetails /></Layout></ProtectedRoute>} />
-          <Route path="/New-Class" element={<ProtectedRoute roles={['Instructor']}><Layout><NewClass /></Layout></ProtectedRoute>} />
           <Route path="/NewExam" element={<ProtectedRoute roles={['Instructor']}><Layout><NewExam /></Layout></ProtectedRoute>} />
           <Route path="/ExamBoard" element={<ProtectedRoute roles={['Instructor']}><Layout><ExamBoard /></Layout></ProtectedRoute>} />
           <Route path="/ExamControls" element={<ProtectedRoute roles={['Instructor']}><Layout><ExamControls /></Layout></ProtectedRoute>} />
