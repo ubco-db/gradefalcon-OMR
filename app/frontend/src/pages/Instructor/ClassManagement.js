@@ -166,7 +166,7 @@ const ClassManagement = () => {
             </div>
           </CardHeader>
           <CardContent>
-            <ScrollArea className="h-80">
+            <ScrollArea className="h-[70vh]">
               <Table>
                 <TableHeader>
                   <TableRow>
