@@ -817,6 +817,23 @@ class LMSIntegrationService {
         try {
           console.log(`Processing enrollment for existing student: ${student.student_id}`);
 
+          const integrationCheckQuery = {
+            text: 'SELECT 1 FROM student_lms_integration WHERE student_id = $1 AND lms_type = $2',
+            values: [student.student_id, integration.lmsType],
+          };
+          const integrationExists = await client.query(integrationCheckQuery);
+
+          if (integrationExists.rows.length === 0) {
+            const integrationInsertQuery = {
+              text: `INSERT INTO student_lms_integration (student_id, lms_user_id, lms_type)
+              VALUES ($1, $2, $3)
+              ON CONFLICT (student_id, lms_type) DO NOTHING`,
+              values: [student.student_id, student.lms_user_id, integration.lmsType],
+            };
+            await client.query(integrationInsertQuery);
+            console.log(`Linked existing student ${student.student_id} to LMS ${integration.lmsType}`);
+          }
+
           // Check if enrollment exists for this class
           const enrollmentCheckQuery = {
             text: 'SELECT 1 FROM enrollment WHERE class_id = $1 AND student_id = $2',
